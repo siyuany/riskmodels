@@ -382,15 +382,16 @@ class WOEBin(object):
     ns_dtm：不含空值、特殊值的dtm（ns for non-special）
 
     binning_*：
-        分箱信息统计表，包含 variable（变量名）、bin（分箱名）、good（好样本数）、
+        分箱信息统计表，包含 variable（变量名）、bin_chr（分箱名）、good（好样本数）、
         bad（坏样本数）四列的数据框（pd.DataFrame）。
 
     Args
         eps: 若某一分箱中好样本或坏样本数为0，计算woe及iv时用eps替换0，默认值0.5
     """
 
-    def __init__(self, eps=0.5):
+    def __init__(self, n_bins=None, eps=0.5):
         self.epsilon = eps
+        self.n_bins = n_bins
 
     @staticmethod
     def add_missing_spl_val(dtm: pd.DataFrame, spl_val):
@@ -492,7 +493,7 @@ class WOEBin(object):
 
         return {'binning_sv': binning_sv, 'ns_dtm': ns_dtm}
 
-    def __call__(self, dtm, breaks, special_values):
+    def __call__(self, dtm, breaks=None, special_values=None):
         binning_split = self.dtm_binning_sv(dtm, special_values)
         binning_sv = binning_split['binning_sv']
         dtm = binning_split['ns_dtm']
@@ -623,6 +624,120 @@ class WOEBin(object):
             'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
             'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
         ]]
+
+
+class QuantileWOEBin(WOEBin):
+    """
+    细分箱之等频分箱。对数值型变量，该分箱方法通过分位数寻找切分点。对类别型变量，直接返回所有
+    类别值。
+
+    Args:
+        n_bins: 等频分箱的箱数。
+    """
+
+    def __init__(self, n_bins=20, **kwargs):
+        super().__init__(n_bins, **kwargs)
+
+    def woebin(self, dtm, breaks=None):
+        if is_numeric_dtype(dtm['value']):  # numeric variable
+            xvalue = dtm['value'].astype(float)
+            breaks = np.quantile(xvalue,
+                                 np.linspace(0, 1, self.n_bins + 1),
+                                 method='nearest')
+            breaks = np.unique(breaks)
+            breaks[0] = -np.inf
+            breaks[-1] = np.inf
+        else:
+            breaks = np.unique(dtm['value'])
+        return breaks
+
+
+class HistogramWOEBin(WOEBin):
+    """
+    细分箱之等宽分箱。
+
+    对类别型变量，直接返回所有类别值。
+
+    对数值型变量，首先排除outlier样本，对剩余样本的range等分成`n_bins`等分。
+
+    Args:
+        n_bins: 等宽分箱的箱数。
+    """
+
+    def _pretty(self, low, high, n):
+
+        def nice_number(x):
+            exp = np.floor(np.log10(abs(x)))
+            f = abs(x) / 10**exp
+            if f < 1.5:
+                nf = 1.
+            elif f < 3.:
+                nf = 2.
+            elif f < 7.:
+                nf = 5.
+            else:
+                nf = 10.
+            return np.sign(x) * nf * 10.**exp
+
+        d = abs(nice_number((high - low) / (n - 1)))
+        min_x = np.floor(low / d) * d
+        max_x = np.ceil(high / d) * d
+        return np.arange(min_x, max_x + 0.5 * d, d)
+
+    @staticmethod
+    def _check_empty_bins(dtm, breaks):
+        """针对数值型变量检查空分箱"""
+        bins = pd.cut(dtm['value'], breaks, right=False)
+        bin_sample_count = bins.value_counts()
+        if np.any(bin_sample_count == 0):
+            bin_sample_count = bin_sample_count[bin_sample_count != 0]
+            bin_right = set([
+                re.match(r'\[(.+),(.+)\)', i).group(1)
+                for i in bin_sample_count.index.astype('str')
+            ]).difference({'-inf', 'inf'})
+            breaks = sorted(
+                list(map(float, ['-inf'] + list(bin_right) + ['inf'])))
+        return breaks
+
+    def woebin(self, dtm, breaks=None):
+        if is_numeric_dtype(dtm['value']):  # numeric variable
+            xvalue = dtm['value'].astype(float)
+
+            # outlier处理
+            iq = xvalue.quantile([0.01, 0.25, 0.75, 0.99])
+            iqr = iq[0.75] - iq[0.25]
+            if iqr == 0:
+                prob_down = 0.01
+                prob_up = 0.99
+            else:
+                prob_down = 0.25
+                prob_up = 0.75
+            xvalue_rm_outlier = xvalue[(xvalue >= iq[prob_down] - 3 * iqr) &
+                                       (xvalue <= iq[prob_up] + 3 * iqr)]
+
+            n_bins = self.n_bins
+            len_uniq_x = len(np.unique(xvalue_rm_outlier))
+            if len_uniq_x < n_bins:
+                n_bins = len_uniq_x
+            # initial breaks
+            if len_uniq_x == n_bins:
+                breaks = np.unique(xvalue_rm_outlier)
+            else:
+                breaks = self._pretty(low=min(xvalue_rm_outlier),
+                                      high=max(xvalue_rm_outlier),
+                                      n=self.n_bins)
+
+            breaks = list(
+                filter(lambda x: np.nanmin(xvalue) < x <= np.nanmax(xvalue),
+                       breaks))
+            breaks = [float('-inf')] + sorted(breaks) + [float('inf')]
+            breaks = self._check_empty_bins(dtm, breaks)
+        else:
+            breaks = np.unique(dtm['value'])
+        return breaks
+
+    def __init__(self, n_bins=20, **kwargs):
+        super().__init__(n_bins, **kwargs)
 
 
 def woebin_factory(*args, **kwargs) -> WOEBin:
