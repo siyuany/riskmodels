@@ -12,11 +12,6 @@ from pandas.api.types import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
-__all__ = [
-    'woebin', 'WOEBinFactory', 'WOEBin', 'HistogramInitBin', 'QuantileInitBin',
-    'ChiMergeOptimBin', 'TreeOptimBin'
-]
-
 
 def interactive_mode():
     # noinspection PyPackageRequirements
@@ -335,12 +330,11 @@ def woebin(dt,
     y = y[0]
     # tasks for binning variable
 
-    woe_bin = WOEBinFactory.build(
-        ['quantile', 'chi2'],
-        initial_bins=np.round(1/init_count_distr),
-        count_distr_limit=count_distr_limit,
-        stop_limit=stop_limit,
-        bin_num_limit=bin_num_limit)
+    woe_bin = WOEBinFactory.build(['quantile', 'chi2'],
+                                  initial_bins=np.round(1 / init_count_distr),
+                                  count_distr_limit=count_distr_limit,
+                                  stop_limit=stop_limit,
+                                  bin_num_limit=bin_num_limit)
 
     tasks = [
         (
@@ -830,11 +824,17 @@ class OptimBinMixin:
 @WOEBinFactory.register(['chi2', 'chimerge'])
 class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
-    def __init__(self, bin_num_limit, stop_limit, count_distr_limit, **kwargs):
+    def __init__(self,
+                 bin_num_limit,
+                 stop_limit,
+                 count_distr_limit,
+                 ensure_monotonic=False,
+                 **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.stop_limit = stop_limit
         self.count_distr_limit = count_distr_limit
+        self.ensure_monotonic = ensure_monotonic
         self.chi2_limit = chi2.isf(stop_limit, df=1)
 
     @staticmethod
@@ -936,31 +936,96 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 @WOEBinFactory.register('tree')
 class TreeOptimBin(WOEBin, OptimBinMixin):
 
-    def __init__(self, bin_num_limit, stop_limit, count_distr_limit, **kwargs):
+    def __init__(self,
+                 bin_num_limit,
+                 stop_limit,
+                 count_distr_limit,
+                 ensure_monotonic=False,
+                 **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.stop_limit = stop_limit
         self.count_distr_limit = count_distr_limit
+        self.ensure_monotonic = ensure_monotonic
 
     def woebin(self, dtm, breaks=None):
         assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
                                    f"需要传入初始分箱（细分箱）结果"
-        binning = self.initial_binning(dtm, breaks)
-        best_breaks = None
-        iv1 = iv2 = 1e-10
-        iv_gain = 1
-        step_num = 1
-        binning_tree = None
-        while iv_gain >= self.stop_limit and step_num <= self.bin_num_limit - 1:
-            binning_tree = woebin2_tree_add_1brkp(dtm, initial_binning,
-                                                  count_distr_limit,
-                                                  best_breaks)
-            # best breaks
-            best_breaks = binning_tree.loc[
-                lambda x: x['bstbrkp'] != float('-inf'), 'bstbrkp'].tolist()
-            # information value
-            iv2 = binning_tree['total_iv'].tolist()[0]
-            iv_gain = iv2 / iv1 - 1  ## ratio gain
-            iv1 = iv2
-            # step_num
-            step_num = step_num + 1
+        binning_tree = self.initial_binning(dtm, breaks)
+        binning_tree['node_id'] = 0
+        binning_tree['cp'] = False
+        binning_tree.loc[len(binning_tree) - 1, 'cp'] = True
+
+        last_iv = 0
+
+        while len(binning_tree['node_id'].unique()) <= self.bin_num_limit:
+            cut_idx_iv = {}
+            for idx in binning_tree.index[~binning_tree['cp']]:
+                new_node_ids = self.node_split(binning_tree['node_id'], idx)
+                new_binning = self.merge_binning(binning_tree, new_node_ids)
+                if np.all(new_binning['count_distr'] > self.count_distr_limit):
+                    curr_iv = new_binning['total_iv'][0]
+                    if ((curr_iv - last_iv + 1e-8) /
+                        (last_iv + 1e-8)) > self.stop_limit:
+                        cut_idx_iv[idx] = curr_iv
+
+            if len(cut_idx_iv) > 0:
+                sorted_cut_idx_iv = sorted(cut_idx_iv.items(),
+                                           key=lambda x: -x[1])
+                best_cut_idx = sorted_cut_idx_iv[0][0]
+                last_iv = sorted_cut_idx_iv[0][1]
+                binning_tree['node_id'] = self.node_split(
+                    binning_tree['node_id'], best_cut_idx)
+                binning_tree.loc[best_cut_idx, 'cp'] = True
+            else:
+                break
+
+        best_binning = self.merge_binning(binning_tree, binning_tree['node_id'])
+
+        if is_numeric_dtype(dtm['value']):
+            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
+                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+            _pattern = re.compile(r"^\[(.*), *(.*)\)")
+            breaks = best_binning['bin_chr'].apply(
+                lambda x: _pattern.match(x)[2])
+            breaks = pd.to_numeric(breaks)
+        else:
+            breaks = best_binning['bin_chr']
+
+        return breaks
+
+    def merge_binning(self, binning, node_ids):
+        # yapf: disable
+        new_binning = binning.groupby([
+            'variable',
+            node_ids,
+        ]).agg(bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())),
+               count=('count', 'sum'),
+               count_distr=('count_distr', 'sum'),
+               good=('good', 'sum'),
+               bad=('bad', 'sum')
+        ).assign(total_iv=lambda x: self.iv(x['good'], x['bad']))
+        # yapf: enable
+
+        return new_binning
+
+    @staticmethod
+    def node_split(node_ids, idx):
+        node_id = node_ids[idx]
+        new_node_ids = np.where(
+            node_ids == node_id,
+            np.where(node_ids.index <= idx, 2 * node_id + 1, 2 * node_id + 2),
+            node_ids)
+
+        return new_node_ids
+
+    def iv(self, good, bad):
+        good = np.asarray(good)
+        bad = np.asarray(bad)
+        # substitute 0 by self.epsilon
+        good = np.where(good == 0, self.epsilon, good)
+        bad = np.where(bad == 0, self.epsilon, bad)
+        good_distr = good / good.sum()
+        bad_distr = bad / bad.sum()
+        iv = (good_distr - bad_distr) * np.log(good_distr / bad_distr)
+        return iv.sum()
