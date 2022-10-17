@@ -9,8 +9,13 @@ import warnings
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
+from scipy.stats import chi2
+from scipy.stats import chi2_contingency
 
-__all__ = ['interactive_mode', 'woebin', 'WOEBin']
+__all__ = [
+    'woebin', 'WOEBinFactory', 'WOEBin', 'HistogramInitBin', 'QuantileInitBin',
+    'ChiMergeOptimBin', 'TreeOptimBin'
+]
 
 
 def interactive_mode():
@@ -246,7 +251,6 @@ def woebin(dt,
            replace_blank=True,
            save_breaks_list=None,
            **kwargs):
-
     # start time
     start_time = time.time()
 
@@ -366,6 +370,46 @@ def woebin(dt,
     return bins
 
 
+class WOEBinFactory(object):
+    __woebin_class_mapping = {}
+
+    @classmethod
+    def register(cls, names):
+        """注册分箱类的装饰器，同一个分箱类可以注册为多个名称."""
+        names = str_to_list(names)
+
+        def wrapped(bin_class):
+            if not issubclass(bin_class, WOEBin):
+                raise TypeError(f'类{bin_class}不是WOEBin子类，无法注册')
+
+            for name in names:
+                if name in cls.__woebin_class_mapping.keys():
+                    raise KeyError(f'名称{name}已存在，'
+                                   f'类{bin_class.__name__}不能注册为{name}')
+                else:
+                    cls.__woebin_class_mapping[name] = bin_class
+
+            return bin_class
+
+        return wrapped
+
+    @classmethod
+    def get_binner(cls, bin_class, *args, **kwargs):
+        if isinstance(bin_class, str):
+            bin_class = cls.__woebin_class_mapping[bin_class]
+
+        if issubclass(bin_class, WOEBin):
+            binner = bin_class(*args, **kwargs)
+        else:
+            raise TypeError(f'类{bin_class}不是WOEBin子类')
+
+        return binner
+
+    @classmethod
+    def build(cls, bin_classes, *args, **kwargs):
+        pass
+
+
 class WOEBin(object):
     """WOEBin: 对单个变量进行分箱操作的基类，所有分箱操作的类都继承本类。
 
@@ -389,9 +433,9 @@ class WOEBin(object):
         eps: 若某一分箱中好样本或坏样本数为0，计算woe及iv时用eps替换0，默认值0.5
     """
 
-    def __init__(self, n_bins=None, eps=0.5):
+    def __init__(self, eps=0.5, **kwargs):
         self.epsilon = eps
-        self.n_bins = n_bins
+        self.kwargs = kwargs
 
     @staticmethod
     def add_missing_spl_val(dtm: pd.DataFrame, spl_val):
@@ -592,7 +636,8 @@ class WOEBin(object):
     def binning_format(self, binning):
         """"""
 
-        def _rm0(x):
+        def sub0(x):
+            """substitute 0"""
             return np.where(x == 0, self.epsilon, x)
 
         _pattern = re.compile(r"^\[(.*), *(.*)\)((%,%missing)*)")
@@ -605,8 +650,8 @@ class WOEBin(object):
         # yapf: disable
         binning = binning.assign(
             count=lambda x: x['good'] + x['bad'],
-            bad_dist=lambda x: _rm0(x['bad']) / _rm0(x['bad']).sum(),
-            good_dist=lambda x: _rm0(x['good']) / _rm0(x['good']).sum()
+            bad_dist=lambda x: sub0(x['bad']) / sub0(x['bad']).sum(),
+            good_dist=lambda x: sub0(x['good']) / sub0(x['good']).sum()
         ).assign(
             count_distr=lambda x: x['count'] / x['count'].sum(),
             badprob=lambda x: x['bad'] / x['count'],
@@ -626,7 +671,8 @@ class WOEBin(object):
         ]]
 
 
-class QuantileWOEBin(WOEBin):
+@WOEBinFactory.register('quantile')
+class QuantileInitBin(WOEBin):
     """
     细分箱之等频分箱。对数值型变量，该分箱方法通过分位数寻找切分点。对类别型变量，直接返回所有
     类别值。
@@ -635,8 +681,9 @@ class QuantileWOEBin(WOEBin):
         n_bins: 等频分箱的箱数。
     """
 
-    def __init__(self, n_bins=20, **kwargs):
-        super().__init__(n_bins, **kwargs)
+    def __init__(self, initial_bins=20, **kwargs):
+        super().__init__(**kwargs)
+        self.n_bins = initial_bins
 
     def woebin(self, dtm, breaks=None):
         if is_numeric_dtype(dtm['value']):  # numeric variable
@@ -652,7 +699,8 @@ class QuantileWOEBin(WOEBin):
         return breaks
 
 
-class HistogramWOEBin(WOEBin):
+@WOEBinFactory.register('hist')
+class HistogramInitBin(WOEBin):
     """
     细分箱之等宽分箱。
 
@@ -664,7 +712,8 @@ class HistogramWOEBin(WOEBin):
         n_bins: 等宽分箱的箱数。
     """
 
-    def _pretty(self, low, high, n):
+    @staticmethod
+    def _pretty(low, high, n):
 
         def nice_number(x):
             exp = np.floor(np.log10(abs(x)))
@@ -736,9 +785,131 @@ class HistogramWOEBin(WOEBin):
             breaks = np.unique(dtm['value'])
         return breaks
 
-    def __init__(self, n_bins=20, **kwargs):
-        super().__init__(n_bins, **kwargs)
+    def __init__(self, initial_bins=20, **kwargs):
+        super().__init__(**kwargs)
+        self.n_bins = initial_bins
 
 
-def woebin_factory(*args, **kwargs) -> WOEBin:
-    return WOEBin()
+@WOEBinFactory.register(['chi2', 'chimerge'])
+class ChiMergeOptimBin(WOEBin):
+
+    def __init__(self, bin_num_limit, stop_limit, count_distr_limit, **kwargs):
+        super().__init__(**kwargs)
+        self.bin_num_limit = bin_num_limit
+        self.stop_limit = stop_limit
+        self.count_distr_limit = count_distr_limit
+        self.chi2_limit = chi2.isf(stop_limit, df=1)
+
+    @staticmethod
+    def chi2_stat(binning):
+        """计算两分箱之间的Chi2统计量，这里直接使用`scipy.stats.chi2_contingency`函数，
+        并且使用 Yate's 连续性修正"""
+        binning['good_lag'] = binning['good'].shift(1)
+        binning['bad_lag'] = binning['bad'].shift(1)
+
+        def chi2_cont_tbl(arr):
+            if np.any(np.isnan(arr)):
+                return np.nan
+            elif np.any(np.sum(arr, axis=1) == 0) or np.any(
+                    np.sum(arr, axis=0) == 0):
+                return 0.0
+            else:
+                return chi2_contingency(arr, correction=True)[0]
+
+        binning['chi2'] = binning.apply(lambda x: chi2_cont_tbl(
+            [[x['good'], x['bad']], [x['good_lag'], x['bad_lag']]]),
+                                        axis=1)
+        del binning['good_lag']
+        del binning['bad_lag']
+
+        return binning
+
+    def woebin(self, dtm, breaks=None):
+        assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
+                                   f"需要传入初始分箱（细分箱）结果"
+
+        binning = self._binning_breaks(dtm, breaks)
+        binning['count'] = binning['good'] + binning['bad']
+        binning['count_distr'] = binning['count'] / binning['count'].sum()
+
+        if not is_numeric_dtype(dtm['value']):
+            binning['badprob'] = binning['bad'] / binning['count']
+            binning = binning.sort_values(
+                by='badprob', ascending=False).reset_index(drop=True)
+
+        binning_chi2 = self.chi2_stat(binning)
+
+        # Start merge loop
+        while True:
+            min_chi2 = binning_chi2['chi2'].min()
+            min_count_distr = binning_chi2['count_distr'].min()
+            n_bins = len(binning_chi2)
+
+            if min_chi2 < self.chi2_limit:
+                # 分箱坏占比差异不显著
+                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
+            elif min_count_distr < self.count_distr_limit:
+                # 分箱占比过少
+                idx = binning_chi2[binning_chi2['count_distr'] ==
+                                   min_count_distr].index[0]
+                if idx == 0 or (idx < len(binning_chi2) - 1 and
+                                (binning_chi2['chi2'][idx] >
+                                 binning_chi2['chi2'][idx + 1])):
+                    idx = idx + 1
+            elif n_bins > self.bin_num_limit:
+                # 分箱数太多
+                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
+            else:
+                # 结束合并操作
+                break
+
+            # yapf: disable
+            binning_chi2.loc[idx - 1, 'bin_chr'] = '%,%'.join(
+                [binning_chi2.loc[idx - 1, 'bin_chr'],
+                 binning_chi2.loc[idx, 'bin_chr']])
+            binning_chi2.loc[idx - 1, 'count'] = (
+                    binning_chi2.loc[idx - 1, 'count'] +
+                    binning_chi2.loc[idx, 'count'])
+            binning_chi2.loc[idx - 1, 'count_distr'] = (
+                    binning_chi2.loc[idx - 1, 'count_distr'] +
+                    binning_chi2.loc[idx, 'count_distr'])
+            binning_chi2.loc[idx - 1, 'good'] = (
+                    binning_chi2.loc[idx - 1, 'good'] +
+                    binning_chi2.loc[idx, 'good'])
+            binning_chi2.loc[idx - 1, 'bad'] = (
+                    binning_chi2.loc[idx - 1, 'bad'] +
+                    binning_chi2.loc[idx, 'bad'])
+            # yapf: enable
+
+            if is_numeric_dtype(dtm['value']):
+                # 数值类型分箱合并
+                # [a,b)%,%[b,c) → [a,c)
+                binning_chi2['bin_chr'] = binning_chi2['bin_chr'].apply(
+                    lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+
+            index = binning_chi2.index.tolist()
+            index.remove(idx)
+            binning_chi2 = binning_chi2.iloc[index,].reset_index(drop=True)
+            binning_chi2 = self.chi2_stat(binning_chi2)
+        # End of loop
+
+        # 切分点提取
+        if is_numeric_dtype(dtm['value']):
+            _pattern = re.compile(r"^\[(.*), *(.*)\)")
+            breaks = binning_chi2['bin_chr'].apply(
+                lambda x: _pattern.match(x)[2])
+            breaks = pd.to_numeric(breaks)
+        else:
+            breaks = binning_chi2['bin_chr']
+
+        return breaks
+
+
+@WOEBinFactory.register('tree')
+class TreeOptimBin(WOEBin):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def woebin(self, dtm, breaks=None):
+        pass
