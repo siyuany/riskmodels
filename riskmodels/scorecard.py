@@ -335,8 +335,12 @@ def woebin(dt,
     y = y[0]
     # tasks for binning variable
 
-    woe_bin = woebin_factory(init_count_distr, count_distr_limit, stop_limit,
-                             bin_num_limit, method)
+    woe_bin = WOEBinFactory.build(
+        ['quantile', 'chi2'],
+        initial_bins=np.round(1/init_count_distr),
+        count_distr_limit=count_distr_limit,
+        stop_limit=stop_limit,
+        bin_num_limit=bin_num_limit)
 
     tasks = [
         (
@@ -394,20 +398,25 @@ class WOEBinFactory(object):
         return wrapped
 
     @classmethod
-    def get_binner(cls, bin_class, *args, **kwargs):
+    def get_binner(cls, bin_class, **kwargs):
         if isinstance(bin_class, str):
             bin_class = cls.__woebin_class_mapping[bin_class]
 
         if issubclass(bin_class, WOEBin):
-            binner = bin_class(*args, **kwargs)
+            binner = bin_class(**kwargs)
+        elif isinstance(bin_class, WOEBin):
+            binner = bin_class
         else:
             raise TypeError(f'类{bin_class}不是WOEBin子类')
 
         return binner
 
     @classmethod
-    def build(cls, bin_classes, *args, **kwargs):
-        pass
+    def build(cls, bin_classes, **kwargs):
+        bin_objects = [
+            cls.get_binner(bin_cls, **kwargs) for bin_cls in bin_classes
+        ]
+        return ComposedWOEBin(bin_objects, **kwargs)
 
 
 class WOEBin(object):
@@ -671,6 +680,19 @@ class WOEBin(object):
         ]]
 
 
+class ComposedWOEBin(WOEBin):
+
+    def __init__(self, bin_objects, **kwargs):
+        super().__init__(**kwargs)
+        self.__bin_objects = bin_objects
+
+    def woebin(self, dtm, breaks=None):
+        for bin_obj in self.__bin_objects:
+            breaks = bin_obj.woebin(dtm, breaks)
+
+        return breaks
+
+
 @WOEBinFactory.register('quantile')
 class QuantileInitBin(WOEBin):
     """
@@ -790,8 +812,23 @@ class HistogramInitBin(WOEBin):
         self.n_bins = initial_bins
 
 
+class OptimBinMixin:
+
+    def initial_binning(self, dtm, breaks):
+        binning = self._binning_breaks(dtm, breaks)
+        binning['count'] = binning['good'] + binning['bad']
+        binning['count_distr'] = binning['count'] / binning['count'].sum()
+
+        if not is_numeric_dtype(dtm['value']):
+            binning['badprob'] = binning['bad'] / binning['count']
+            binning = binning.sort_values(
+                by='badprob', ascending=False).reset_index(drop=True)
+
+        return binning
+
+
 @WOEBinFactory.register(['chi2', 'chimerge'])
-class ChiMergeOptimBin(WOEBin):
+class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
     def __init__(self, bin_num_limit, stop_limit, count_distr_limit, **kwargs):
         super().__init__(**kwargs)
@@ -827,16 +864,7 @@ class ChiMergeOptimBin(WOEBin):
     def woebin(self, dtm, breaks=None):
         assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
                                    f"需要传入初始分箱（细分箱）结果"
-
-        binning = self._binning_breaks(dtm, breaks)
-        binning['count'] = binning['good'] + binning['bad']
-        binning['count_distr'] = binning['count'] / binning['count'].sum()
-
-        if not is_numeric_dtype(dtm['value']):
-            binning['badprob'] = binning['bad'] / binning['count']
-            binning = binning.sort_values(
-                by='badprob', ascending=False).reset_index(drop=True)
-
+        binning = self.initial_binning(dtm, breaks)
         binning_chi2 = self.chi2_stat(binning)
 
         # Start merge loop
@@ -906,10 +934,33 @@ class ChiMergeOptimBin(WOEBin):
 
 
 @WOEBinFactory.register('tree')
-class TreeOptimBin(WOEBin):
+class TreeOptimBin(WOEBin, OptimBinMixin):
 
-    def __init__(self, **kwargs):
+    def __init__(self, bin_num_limit, stop_limit, count_distr_limit, **kwargs):
         super().__init__(**kwargs)
+        self.bin_num_limit = bin_num_limit
+        self.stop_limit = stop_limit
+        self.count_distr_limit = count_distr_limit
 
     def woebin(self, dtm, breaks=None):
-        pass
+        assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
+                                   f"需要传入初始分箱（细分箱）结果"
+        binning = self.initial_binning(dtm, breaks)
+        best_breaks = None
+        iv1 = iv2 = 1e-10
+        iv_gain = 1
+        step_num = 1
+        binning_tree = None
+        while iv_gain >= self.stop_limit and step_num <= self.bin_num_limit - 1:
+            binning_tree = woebin2_tree_add_1brkp(dtm, initial_binning,
+                                                  count_distr_limit,
+                                                  best_breaks)
+            # best breaks
+            best_breaks = binning_tree.loc[
+                lambda x: x['bstbrkp'] != float('-inf'), 'bstbrkp'].tolist()
+            # information value
+            iv2 = binning_tree['total_iv'].tolist()[0]
+            iv_gain = iv2 / iv1 - 1  ## ratio gain
+            iv1 = iv2
+            # step_num
+            step_num = step_num + 1
