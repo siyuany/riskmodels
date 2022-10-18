@@ -1,4 +1,15 @@
 # -*- encoding: utf-8 -*-
+"""
+scorecard.py - 变量分箱算法
+
+本模块从 scorecardpy(https://github.com/ShichenXie/scorecardpy)移植，并对代码进行了
+大量重构，以提供更好的扩展性和向后兼容性。本模块主要接口尽可能保持与 scorecardpy 相同，主要有
+如下接口函数：
+
+* woebin
+* woebin_ply
+* woebin_plot
+"""
 import itertools
 import multiprocessing as mp
 import platform
@@ -6,6 +17,7 @@ import re
 import time
 import warnings
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -232,63 +244,20 @@ def woebin(dt,
            var_skip=None,
            breaks_list=None,
            special_values=None,
-           stop_limit=0.1,
-           init_count_distr=0.02,
-           count_distr_limit=0.05,
-           bin_num_limit=8,
            positive="bad|1",
            no_cores=None,
-           print_step=0,
-           method="tree",
+           methods=None,
            ignore_const_cols=True,
            ignore_datetime_cols=True,
            check_cate_num=True,
            replace_blank=True,
-           save_breaks_list=None,
            **kwargs):
+    if methods is None:
+        methods = ['quantile', 'tree']
+
     # start time
     start_time = time.time()
-
     # arguments
-    print_info = kwargs.get('print_info', True)
-    print_step = check_print_step(print_step)
-    # stop_limit range
-    if stop_limit < 0 or stop_limit > 0.5 or not isinstance(
-            stop_limit, (float, int)):
-        warnings.warn(
-            "Incorrect parameter specification; accepted stop_limit parameter "
-            "range is 0-0.5. Parameter was set to default (0.1).")
-        stop_limit = 0.1
-    # init_count_distr range
-    if init_count_distr < 0.01 or init_count_distr > 0.2 or not isinstance(
-            init_count_distr, (float, int)):
-        warnings.warn(
-            "Incorrect parameter specification; accepted init_count_distr "
-            "parameter range is 0.01-0.2. Parameter was set to default (0.02).")
-        init_count_distr = 0.02
-    # count_distr_limit
-    if count_distr_limit < 0.01 or count_distr_limit > 0.2 or not isinstance(
-            count_distr_limit, (float, int)):
-        warnings.warn(
-            "Incorrect parameter specification; accepted count_distr_limit "
-            "parameter range is 0.01-0.2. Parameter was set to default (0.05).")
-        count_distr_limit = 0.05
-    # bin_num_limit
-    if not isinstance(bin_num_limit, (float, int)):
-        warnings.warn(
-            "Incorrect inputs; bin_num_limit should be numeric variable. "
-            "Parameter was set to default (8).")
-        bin_num_limit = 8
-    # method
-    if method not in ["tree", "chimerge"]:
-        warnings.warn("Incorrect inputs; method should be tree or chimerge. "
-                      "Parameter was set to default (tree).")
-        method = "tree"
-
-    # print information
-    if print_info:
-        print('[INFO] creating woe binning ...')
-
     dt = dt.copy(deep=True)
     y = str_to_list(y)
     x = str_to_list(x)
@@ -328,14 +297,8 @@ def woebin(dt,
 
     # y list to str
     y = y[0]
-    # tasks for binning variable
 
-    woe_bin = WOEBinFactory.build(['quantile', 'chi2'],
-                                  initial_bins=np.round(1 / init_count_distr),
-                                  count_distr_limit=count_distr_limit,
-                                  stop_limit=stop_limit,
-                                  bin_num_limit=bin_num_limit)
-
+    woe_bin = WOEBinFactory.build(methods, **kwargs)
     tasks = [
         (
             # dtm definition
@@ -359,21 +322,49 @@ def woebin(dt,
 
     # running time
     running_time = time.time() - start_time
-    if print_info:
-        print('Binning on {} rows and {} columns in {}'.format(
-            dt.shape[0], len(xs),
-            time.strftime("%H:%M:%S", time.gmtime(running_time))))
+    print('Binning on {} rows and {} columns in {}'.format(
+        dt.shape[0], len(xs),
+        time.strftime("%H:%M:%S", time.gmtime(running_time))))
     # if save_breaks_list is not None:
     #     bins_to_breaks(bins, dt, to_string=True, save_string=save_breaks_list)
     return bins
 
 
 class WOEBinFactory(object):
+    """WOEBin工厂方法类，与ComposedWOEBin配合，提供WOEBin子类的组装功能。
+
+    本模块原生提供了两种细分箱方法：QuantileInitBin与HistogramInitBin，两种粗分箱方法：
+    ChiMergeOptimBin与TreeOptimBin。一般在实际使用时需要将细分箱与粗分箱结合使用，例如：
+    先用QuantileInitBin进行等频分箱，然后再用TreeOptimBin对进行细分箱。
+
+    实现上述功能的代码如下：
+
+    >>> woebin = WOEBinFactory.build(['quantile', 'tree'])
+    >>> woebin(dtm)
+
+    其中，quantile和tree为上述两个类的注册名，也可显示写出类名如下：
+
+    >>> woebin = WOEBinFactory.build([QuantileInitBin, TreeOptimBin])
+    >>> woebin(dtm)
+
+    详情请见`WOEBinFactory.register`和`WOEBinFactory.build`方法文档。
+    """
     __woebin_class_mapping = {}
 
     @classmethod
     def register(cls, names):
-        """注册分箱类的装饰器，同一个分箱类可以注册为多个名称."""
+        """
+        注册分箱类的装饰器。对分箱类使用该装饰器并指定注册名称后，在`build`方法中就可以使用
+        注册名称替代类名。使用方法可参考`QuantileInitBin`, `HistogramInitBin`,
+        `TreeOptimBin`以及`ChiMergeOptimBin`四个分箱类。
+
+        Args:
+            names: str or list[str]，分箱类的注册名称
+
+        Returns:
+            该装饰器装饰的WOEBin子类
+
+        """
         names = str_to_list(names)
 
         def wrapped(bin_class):
@@ -394,7 +385,10 @@ class WOEBinFactory(object):
     @classmethod
     def get_binner(cls, bin_class, **kwargs):
         if isinstance(bin_class, str):
-            bin_class = cls.__woebin_class_mapping[bin_class]
+            try:
+                bin_class = cls.__woebin_class_mapping[bin_class]
+            except KeyError:
+                raise KeyError(f'方法{bin_class}未注册！')
 
         if issubclass(bin_class, WOEBin):
             binner = bin_class(**kwargs)
@@ -407,6 +401,27 @@ class WOEBinFactory(object):
 
     @classmethod
     def build(cls, bin_classes, **kwargs):
+        """
+        将多个WOEBin*按顺序*组装为一个WOEBin子类（ComposedWOEBin）,该方法可接受任意关键字
+        参数，并传递给子类初始化方法。通常的组装方式为细分箱类(*InitBin) +
+        粗分箱类(*OptimBin)。
+
+        >>> woebin = WOEBinFactory.build (['quantile', 'tree'],
+        ...                               initial_bins=20,
+        ...                               bin_num_limit=8,
+        ...                               stop_limit=0.1,
+        ...                               count_distr_limit=0.05)
+        >>> woebin
+        <riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
+
+        Args:
+            bin_classes: WOEBin子类或子类注册名列表
+            **kwargs: 子类初始化的关键字参数
+
+        Returns:
+            ComposedWOEBin实例
+
+        """
         bin_objects = [
             cls.get_binner(bin_cls, **kwargs) for bin_cls in bin_classes
         ]
@@ -416,9 +431,26 @@ class WOEBinFactory(object):
 class WOEBin(object):
     """WOEBin: 对单个变量进行分箱操作的基类，所有分箱操作的类都继承本类。
 
-    分箱类型包括细分箱、粗分箱。其中细分箱用来初始化分箱，一般是通过等频(quantile)或等宽
-    (histogram)的方式进行分箱；粗分箱在粗分箱结果的基础上进行，用来简化分箱结果，确保稳定
-    性和显著性。
+    分箱类型包括细分箱(*InitBin)、粗分箱(*OptimBin)。其中细分箱用来初始化分箱，一般是通
+    过等频(quantile)或等宽(histogram)的方式进行分箱；粗分箱在粗分箱结果的基础上进行，用
+    来简化分箱结果，确保分箱结果的显著性和稳定性。
+
+    WOEBin实例为可调用(callable)对象，接受dtm、breaks、special_values三个参数，当
+    breaks 不为空时，WOEBin实例将直接使用breaks提供的切分点进行分箱，不再调用`woebin`方法；
+    当 special_values 不为空时，调用WOEBin实例会把原数据集拆分为特殊值、非特殊值两部分，
+    对特殊值部分，每个特殊值将单独成箱，不做分箱合并，对于非特殊值按照breaks参数或调用woebin
+    方法返回的切分点进行分箱。注意：当原数据集中包含空值时，空值将作为特殊值单独成箱。
+
+    `woebin`方法为分箱主方法，接收数据集中非特殊值（排除空值和special_values中指定的其他
+    特殊值）部分作为入参，并返回*切分点*。扩展本类时，需要重写本方法。对于细分箱(*InitBin)，
+    该方法不接受breaks参数；对于粗分箱(*OptimBin)，需要为本方法传入细分箱`woebin`方法返回
+    的切分点作为breaks入参。
+
+    分箱名约定：当x为数值型变量时，分箱名为 [a,b) 左闭右开区间；当x为类别变量时，分箱名为
+    c1%,%c2%,%...%,%cn，即用%,%拼接的类别名。
+
+    切分点约定：当x为数值型变量，分箱名为 [a,b) 时，切分点为区间右边界 b；当x为类别变量时，
+    切分点与分享名相同。
 
     * 常用变量约定
 
@@ -485,6 +517,51 @@ class WOEBin(object):
             return pd.merge(a, b, on='bin_chr')
 
     @classmethod
+    def split_special_values(cls, dtm, spl_val):
+        dtm['idx'] = dtm.index
+        spl_val = cls.add_missing_spl_val(dtm, spl_val)
+        if spl_val is not None:
+            sv_df = cls.split_vec_to_df(spl_val)
+            # value
+            if is_numeric_dtype(dtm['value']):
+                sv_df['value'] = sv_df['value'].astype(dtm['value'].dtypes)
+                # TODO: 此处是否必要？？
+                sv_df['bin_chr'] = np.where(np.isnan(sv_df['value']),
+                                            sv_df['bin_chr'],
+                                            sv_df['value'].astype(str))
+            # dtm_sv & dtm
+            dtm_merge = pd.merge(dtm.fillna("missing"),
+                                 sv_df[['value', 'rowid']].fillna("missing"),
+                                 how='left',
+                                 on='value')
+            dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][
+                dtm.columns.tolist()].reset_index(drop=True)
+            dtm_ns = dtm_merge[dtm_merge['rowid'].isna()][
+                dtm.columns.tolist()].reset_index(drop=True)
+            if len(dtm_ns) == 0:
+                dtm_ns = None
+            else:
+                dtm_ns['value'] = dtm_ns['value'].astype(dtm['value'].dtypes)
+
+            if dtm_sv.shape[0] == 0:
+                dtm_sv = None
+            else:
+                dtm_sv = pd.merge(dtm_sv.fillna('missing'),
+                                  sv_df.fillna('missing'),
+                                  on='value')
+        else:
+            dtm_sv = None
+            dtm_ns = dtm
+
+        if dtm_sv is not None:
+            dtm_sv.set_index(dtm_sv['idx'], drop=True, inplace=True)
+
+        if dtm_ns is not None:
+            dtm_ns.set_index(dtm_ns['idx'], drop=True, inplace=True)
+
+        return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
+
+    @classmethod
     def dtm_binning_sv(cls, dtm, spl_val):
         """
         将原数据集拆分为特殊值数据集、非特殊值数据集，特殊值列表有spl_val参数给出。
@@ -506,39 +583,17 @@ class WOEBin(object):
             {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': dtm中除去特殊值外的部分}
 
         """
-        spl_val = cls.add_missing_spl_val(dtm, spl_val)
-        if spl_val is not None:
-            sv_df = cls.split_vec_to_df(spl_val)
-            # value
-            if is_numeric_dtype(dtm['value']):
-                sv_df['value'] = sv_df['value'].astype(dtm['value'].dtypes)
-                sv_df['bin_chr'] = np.where(np.isnan(sv_df['value']),
-                                            sv_df['bin_chr'],
-                                            sv_df['value'].astype(str))
-            # dtm_sv & dtm
-            dtm_merge = pd.merge(dtm.fillna("missing"),
-                                 sv_df[['value', 'rowid']].fillna("missing"),
-                                 how='left',
-                                 on='value')
-            dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][
-                dtm.columns.tolist()].reset_index(drop=True)
-            ns_dtm = dtm_merge[dtm_merge['rowid'].isna()][
-                dtm.columns.tolist()].reset_index(drop=True)
-            if len(ns_dtm) == 0:
-                ns_dtm = None
+        split_dtm = cls.split_special_values(dtm, spl_val)
 
-            if dtm_sv.shape[0] == 0:
-                binning_sv = None
-            else:
-                dtm_sv = pd.merge(dtm_sv.fillna('missing'),
-                                  sv_df.fillna('missing'),
-                                  on='value')
-                binning_sv = cls.binning(dtm, dtm_sv['bin_chr'])
-        else:
+        dtm_sv = split_dtm['dtm_sv']
+        dtm_ns = split_dtm['dtm_ns']
+
+        if dtm_sv is None or dtm_sv.shape[0] == 0:
             binning_sv = None
-            ns_dtm = dtm
+        else:
+            binning_sv = cls.binning(dtm_sv, dtm_sv['bin_chr'])
 
-        return {'binning_sv': binning_sv, 'ns_dtm': ns_dtm}
+        return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
 
     def __call__(self, dtm, breaks=None, special_values=None):
         binning_split = self.dtm_binning_sv(dtm, special_values)
@@ -549,10 +604,10 @@ class WOEBin(object):
             binning_dtm = None
         else:
             if breaks is not None:
-                binning_dtm = self._binning_breaks(dtm, breaks)
+                binning_dtm = self.binning_breaks(dtm, breaks)
             else:
                 breaks = self.woebin(dtm)
-                binning_dtm = self._binning_breaks(dtm, breaks)
+                binning_dtm = self.binning_breaks(dtm, breaks)
 
         bin_list = {'binning_sv': binning_sv, 'binning': binning_dtm}
         binning = pd.concat(bin_list, keys=bin_list.keys()).reset_index() \
@@ -567,7 +622,7 @@ class WOEBin(object):
     @classmethod
     def binning(cls, dtm, bin_chr):
         """
-        给定dtm、分箱序列生成binning，dtm和binning的定义见WOEBin类文档。bin_chr为
+        给定dtm、分箱名序列生成binning，dtm和binning的定义见WOEBin类文档。bin_chr为
         pd.Series，长度与dtm相同，对应dtm中每个样本所属的分箱名称。
 
         Args:
@@ -589,7 +644,64 @@ class WOEBin(object):
 
         return binning
 
-    def _binning_breaks(self, dtm, breaks):
+    @classmethod
+    def apply(cls, dtm, bin_res, value='woe'):
+        """
+
+        Args:
+            dtm:
+            bin_res:
+            value: 转换值类型，可选项('woe', 'index', 'bin')，默认woe.
+
+        Returns:
+
+        """
+        special_values = bin_res['breaks'][
+            bin_res['is_special_values']].tolist()
+        spl_val = cls.add_missing_spl_val(dtm, special_values)
+        breaks = bin_res['breaks'][~bin_res['is_special_values']]
+        split_dtm = cls.split_special_values(dtm, special_values)
+        dtm_sv = split_dtm['dtm_sv']
+        dtm_ns = split_dtm['dtm_ns']
+
+        break_df = cls.split_vec_to_df(breaks)
+        # TO-DO: 以下代码与binning_breaks重复，需要进行精简
+        if is_numeric_dtype(dtm_ns['value']):
+            break_list = ['-inf'] + list(
+                set(break_df.value.tolist()).difference(
+                    {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
+            break_list = sorted(list(map(float, break_list)))
+            labels = [
+                '[{},{})'.format(break_list[i], break_list[i + 1])
+                for i in range(len(break_list) - 1)
+            ]
+            dtm_ns['bin_chr'] = pd.cut(dtm_ns['value'],
+                                       break_list,
+                                       right=False,
+                                       labels=labels).astype(str)
+        else:
+            dtm_ns = pd.merge(dtm_ns, break_df, how='left', on='value')
+
+        new_dtm = pd.concat([
+            dtm_sv[['idx', 'bin_chr', 'value', 'y']],
+            dtm_ns[['idx', 'bin_chr', 'value', 'y']]
+        ],
+                            ignore_index=True)
+        dtm = pd.merge(dtm, new_dtm[['idx', 'bin_chr']], on='idx', how='left')
+        bin_res = bin_res.copy()
+        bin_res['index'] = bin_res.index
+        bin_res['bin_chr'] = bin_res['bin']
+        dtm = pd.merge(dtm,
+                       bin_res[['bin_chr', value]],
+                       on='bin_chr',
+                       how='left')
+        dtm.set_index(dtm['idx'], drop=True, inplace=True)
+        variable = dtm['variable'].iloc[0]
+        feature_name = '_'.join([variable, value])
+        dtm.rename(columns={value: feature_name}, inplace=True)
+        return dtm[feature_name]
+
+    def binning_breaks(self, dtm, breaks):
         """按照给定的breaks进行分箱"""
         break_df = self.split_vec_to_df(breaks)
 
@@ -675,6 +787,12 @@ class WOEBin(object):
 
 
 class ComposedWOEBin(WOEBin):
+    """
+    组合型分箱方法，将多个分箱方法按顺序进行调用。详细说明请见WOEBin。
+
+    Args
+        bin_object: 待组合WOEBin子类实例列表
+    """
 
     def __init__(self, bin_objects, **kwargs):
         super().__init__(**kwargs)
@@ -807,9 +925,10 @@ class HistogramInitBin(WOEBin):
 
 
 class OptimBinMixin:
+    """粗分箱Mixin，提供initial_binning方法，根据细分箱切分点生成分享统计表"""
 
     def initial_binning(self, dtm, breaks):
-        binning = self._binning_breaks(dtm, breaks)
+        binning = self.binning_breaks(dtm, breaks)
         binning['count'] = binning['good'] + binning['bad']
         binning['count_distr'] = binning['count'] / binning['count'].sum()
 
@@ -823,11 +942,22 @@ class OptimBinMixin:
 
 @WOEBinFactory.register(['chi2', 'chimerge'])
 class ChiMergeOptimBin(WOEBin, OptimBinMixin):
+    """
+    ChiMerge最优分箱方法，对相邻分箱进行chi2列联表独立性检验，基于检验的统计量进行分箱合并。
+
+    TODO: 增加分箱单调性约束
+
+    Args
+        bin_num_limit: 分箱数上限，默认5
+        stop_limit: 独立性检验显著性，模型0.05
+        count_distr_limit: 最小分箱样本占比，默认0.02
+        ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
+    """
 
     def __init__(self,
-                 bin_num_limit,
-                 stop_limit,
-                 count_distr_limit,
+                 bin_num_limit=5,
+                 stop_limit=0.05,
+                 count_distr_limit=0.02,
                  ensure_monotonic=False,
                  **kwargs):
         super().__init__(**kwargs)
@@ -935,11 +1065,22 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
 @WOEBinFactory.register('tree')
 class TreeOptimBin(WOEBin, OptimBinMixin):
+    """
+    树分箱方法，从细分箱生成的切分点中挑选最优切分点，自顶向下逐步生成分箱树，完成分箱。
+
+    TODO: 增加分箱单调性约束。
+
+    Args
+        bin_num_limit: 分箱数上限，默认5
+        stop_limit: 增加切分点后IV相对增幅最小值，模型0.05
+        count_distr_limit: 最小分箱样本占比，默认0.02
+        ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
+    """
 
     def __init__(self,
-                 bin_num_limit,
-                 stop_limit,
-                 count_distr_limit,
+                 bin_num_limit=5,
+                 stop_limit=0.05,
+                 count_distr_limit=0.02,
                  ensure_monotonic=False,
                  **kwargs):
         super().__init__(**kwargs)
@@ -1029,3 +1170,144 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         bad_distr = bad / bad.sum()
         iv = (good_distr - bad_distr) * np.log(good_distr / bad_distr)
         return iv.sum()
+
+
+def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
+    # start time
+    start_time = time.time()
+
+    if replace_blank:
+        dt = rep_blank_na(dt)
+
+    # x variables
+    x_vars_bin = bins.keys()
+    x_vars_dt = dt.columns.tolist()
+    x_vars = list(set(x_vars_bin).intersection(x_vars_dt))
+    n_x = len(x_vars)
+    # initial data set
+    dat = dt.loc[:, x_vars]
+
+    if (no_cores is None) or (no_cores < 1):
+        all_cores = mp.cpu_count() - 1
+        no_cores = int(
+            np.ceil(n_x / 5 if n_x / 5 < all_cores else all_cores * 0.9))
+
+    no_cores = max(no_cores, 1)
+
+    tasks = [
+        (
+            pd.DataFrame({
+                'y': 0,  # 不重要
+                'variable': var,
+                'value': dat[var]
+            }),
+            bins[var],
+            value) for var in x_vars
+    ]
+
+    if no_cores == 1:
+        dat_suffix = list(itertools.starmap(WOEBin.apply, tasks))
+    else:
+        pool = mp.Pool(processes=no_cores)
+        dat_suffix = pool.starmap(WOEBin.apply, tasks)
+        pool.close()
+
+    print(dat_suffix)
+
+    dat = pd.concat([dat] + dat_suffix, axis=1)
+
+    # running time
+    running_time = time.time() - start_time
+    if running_time >= 10:
+        print('Woe transformation on {} rows and {} columns in {}'.format(
+            dt.shape[0], n_x,
+            time.strftime("%H:%M:%S", time.gmtime(running_time))))
+    return dat
+
+
+def plot_bin(binx, title, show_iv):
+    y_right_max = np.ceil(binx['badprob'].max() * 10)
+    if y_right_max % 2 == 1:
+        y_right_max = y_right_max + 1
+    if y_right_max - binx['badprob'].max() * 10 <= 0.3:
+        y_right_max = y_right_max + 2
+    y_right_max = y_right_max / 10
+    if (y_right_max > 1 or y_right_max <= 0 or y_right_max is np.nan or
+            y_right_max is None):
+        y_right_max = 1
+    # y_left_max
+    y_left_max = np.ceil(binx['count_distr'].max() * 10) / 10
+    if (y_left_max > 1 or y_left_max <= 0 or y_left_max is np.nan or
+            y_left_max is None):
+        y_left_max = 1
+    # title
+    title_string = binx.loc[0, 'variable'] + "  (iv:" + str(
+        round(binx.loc[0, 'total_iv'],
+              4)) + ")" if show_iv else binx.loc[0, 'variable']
+    title_string = (title + '-' +
+                    title_string if title is not None else title_string)
+    # param
+    ind = np.arange(len(binx.index))  # the x locations for the groups
+    width = 0.35  # the width of the bars: can also be len(x) sequence
+    # plot
+    fig, ax1 = plt.subplots()
+    ax2 = ax1.twinx()
+    # ax1
+    p1 = ax1.bar(ind,
+                 binx['good_distr'],
+                 width,
+                 color=(24 / 254, 192 / 254, 196 / 254))
+    p2 = ax1.bar(ind,
+                 binx['bad_distr'],
+                 width,
+                 bottom=binx['good_distr'],
+                 color=(246 / 254, 115 / 254, 109 / 254))
+    for i in ind:
+        ax1.text(i,
+                 binx.loc[i, 'count_distr'] * 1.02,
+                 str(round(binx.loc[i, 'count_distr'] * 100, 1)) + '%, ' +
+                 str(binx.loc[i, 'count']),
+                 ha='center')
+    # ax2
+    ax2.plot(ind, binx['badprob'], marker='o', color='blue')
+    for i in ind:
+        ax2.text(i,
+                 binx.loc[i, 'badprob'] * 1.02,
+                 str(round(binx.loc[i, 'badprob'] * 100, 1)) + '%',
+                 color='blue',
+                 ha='center')
+    # settings
+    ax1.set_ylabel('Bin count distribution')
+    ax2.set_ylabel('Bad probability', color='blue')
+    ax1.set_yticks(np.arange(0, y_left_max + 0.2, 0.2))
+    ax2.set_yticks(np.arange(0, y_right_max + 0.2, 0.2))
+    ax2.tick_params(axis='y', colors='blue')
+    plt.xticks(ind, binx['bin'])
+    plt.title(title_string, loc='left')
+    plt.legend((p2[0], p1[0]), ('bad', 'good'), loc='upper right')
+
+    return fig
+
+
+def woebin_plot(bins, x=None, title=None, show_iv=True):
+    xs = x
+    # bins concat
+    if isinstance(bins, dict):
+        bins = pd.concat(bins, ignore_index=True)
+
+    # good bad distr
+    def gb_distr(binx):
+        binx['good_distr'] = binx['good'] / sum(binx['count'])
+        binx['bad_distr'] = binx['bad'] / sum(binx['count'])
+        return binx
+
+    bins = bins.groupby('variable').apply(gb_distr)
+    # x variable names
+    if xs is None:
+        xs = bins['variable'].unique()
+    # plot export
+    plot_list = {}
+    for i in xs:
+        binx = bins[bins['variable'] == i].reset_index()
+        plot_list[i] = plot_bin(binx, title, show_iv)
+    return plot_list
