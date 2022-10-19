@@ -720,7 +720,7 @@ class WOEBin(object):
             bin_chr = pd.cut(dtm['value'],
                              break_list,
                              right=False,
-                             labels=labels).astype(str)
+                             labels=labels)
 
             binning = self.binning(dtm, bin_chr)
 
@@ -1070,13 +1070,11 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
     """
     树分箱方法，从细分箱生成的切分点中挑选最优切分点，自顶向下逐步生成分箱树，完成分箱。
 
-    TODO: 增加分箱单调性约束。
-
     Args
         bin_num_limit: 分箱数上限，默认5
         stop_limit: 增加切分点后IV相对增幅最小值，模型0.05
         count_distr_limit: 最小分箱样本占比，默认0.02
-        ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
+        ensure_monotonic: 是否要求严格单调，默认False
     """
 
     def __init__(self,
@@ -1106,7 +1104,17 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
             for idx in binning_tree.index[~binning_tree['cp']]:
                 new_node_ids = self.node_split(binning_tree['node_id'], idx)
                 new_binning = self.merge_binning(binning_tree, new_node_ids)
-                if np.all(new_binning['count_distr'] > self.count_distr_limit):
+                if self.ensure_monotonic:
+                    monotonic_type = monotonic(new_binning['bad_prob'])
+                    if monotonic_type in ('increasing', 'decreasing'):
+                        monotonic_constrain = True
+                    else:
+                        monotonic_constrain = False
+                else:
+                    monotonic_constrain = True
+
+                if (np.all(new_binning['count_distr'] > self.count_distr_limit)
+                        and monotonic_constrain):
                     curr_iv = new_binning['total_iv'][0]
                     if ((curr_iv - last_iv + 1e-8) /
                         (last_iv + 1e-8)) > self.stop_limit:
@@ -1147,18 +1155,16 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
                count_distr=('count_distr', 'sum'),
                good=('good', 'sum'),
                bad=('bad', 'sum')
-        ).assign(total_iv=lambda x: self.iv(x['good'], x['bad']))
+        ).assign(
+            bad_prob=lambda x: x['bad'] / x['count'],
+            total_iv=lambda x: self.iv(x['good'], x['bad']))
         # yapf: enable
 
         return new_binning
 
     @staticmethod
     def node_split(node_ids, idx):
-        node_id = node_ids[idx]
-        new_node_ids = np.where(
-            node_ids == node_id,
-            np.where(node_ids.index <= idx, 2 * node_id + 1, 2 * node_id + 2),
-            node_ids)
+        new_node_ids = np.where(node_ids.index <= idx, node_ids, node_ids + 1)
 
         return new_node_ids
 
