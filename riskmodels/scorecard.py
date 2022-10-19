@@ -9,6 +9,13 @@ scorecard.py - 变量分箱算法
 * woebin
 * woebin_ply
 * woebin_plot
+
+此外，提供以下接口函数：
+
+* sc_bins_to_df
+* make_scorecard
+* woebin_breaks
+* woebin_psi
 """
 import itertools
 import multiprocessing as mp
@@ -24,22 +31,8 @@ from pandas.api.types import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
-from riskmodels.utils import monotonic
-
-
-def interactive_mode():
-    # noinspection PyPackageRequirements
-    import __main__ as main
-    if hasattr(main, '__file__'):
-        return False
-    else:
-        return True
-
-
-def str_to_list(x):
-    if x is not None and isinstance(x, str):
-        x = [x]
-    return x
+from riskmodels.evaluate import psi
+from riskmodels.utils import monotonic, round_, interactive_mode, str_to_list
 
 
 def check_const_cols(dat):
@@ -553,7 +546,7 @@ class WOEBin(object):
                                   on='value')
         else:
             dtm_sv = None
-            dtm_ns = dtm
+            dtm_ns = dtm.copy()
 
         if dtm_sv is not None:
             dtm_sv.set_index(dtm_sv['idx'], drop=True, inplace=True)
@@ -660,35 +653,38 @@ class WOEBin(object):
         """
         special_values = bin_res['breaks'][
             bin_res['is_special_values']].tolist()
-        spl_val = cls.add_missing_spl_val(dtm, special_values)
+        if len(special_values) == 0:
+            special_values = None
         breaks = bin_res['breaks'][~bin_res['is_special_values']]
         split_dtm = cls.split_special_values(dtm, special_values)
         dtm_sv = split_dtm['dtm_sv']
         dtm_ns = split_dtm['dtm_ns']
 
-        break_df = cls.split_vec_to_df(breaks)
-        # TO-DO: 以下代码与binning_breaks重复，需要进行精简
-        if is_numeric_dtype(dtm_ns['value']):
-            break_list = ['-inf'] + list(
-                set(break_df.value.tolist()).difference(
-                    {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
-            break_list = sorted(list(map(float, break_list)))
-            labels = [
-                '[{},{})'.format(break_list[i], break_list[i + 1])
-                for i in range(len(break_list) - 1)
-            ]
-            dtm_ns['bin_chr'] = pd.cut(dtm_ns['value'],
-                                       break_list,
-                                       right=False,
-                                       labels=labels).astype(str)
-        else:
-            dtm_ns = pd.merge(dtm_ns, break_df, how='left', on='value')
+        if dtm_sv is not None:
+            dtm_sv = dtm_sv[['idx', 'bin_chr', 'value', 'y']]
 
-        new_dtm = pd.concat([
-            dtm_sv[['idx', 'bin_chr', 'value', 'y']],
-            dtm_ns[['idx', 'bin_chr', 'value', 'y']]
-        ],
-                            ignore_index=True)
+        if dtm_ns is not None:
+            break_df = cls.split_vec_to_df(breaks)
+            # TO-DO: 以下代码与binning_breaks重复，需要进行精简
+            if is_numeric_dtype(dtm_ns['value']):
+                break_list = ['-inf'] + list(
+                    set(break_df.value.tolist()).difference(
+                        {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
+                break_list = sorted(list(map(float, break_list)))
+                labels = [
+                    '[{},{})'.format(break_list[i], break_list[i + 1])
+                    for i in range(len(break_list) - 1)
+                ]
+                dtm_ns['bin_chr'] = pd.cut(dtm_ns['value'],
+                                           break_list,
+                                           right=False,
+                                           labels=labels).astype(str)
+            else:
+                dtm_ns = pd.merge(dtm_ns, break_df, how='left', on='value')
+
+            dtm_ns = dtm_ns[['idx', 'bin_chr', 'value', 'y']]
+
+        new_dtm = pd.concat([dtm_sv, dtm_ns], ignore_index=True)
         dtm = pd.merge(dtm, new_dtm[['idx', 'bin_chr']], on='idx', how='left')
         bin_res = bin_res.copy()
         bin_res['index'] = bin_res.index
@@ -814,12 +810,14 @@ class QuantileInitBin(WOEBin):
     类别值。
 
     Args:
-        n_bins: 等频分箱的箱数。
+        initial_bins: 等频分箱的箱数，默认20
+        sig_figs: 切分点有效数字位数，默认4
     """
 
-    def __init__(self, initial_bins=20, **kwargs):
+    def __init__(self, initial_bins=20, sig_figs=4, **kwargs):
         super().__init__(**kwargs)
         self.n_bins = initial_bins
+        self.sig_figs = sig_figs
 
     def woebin(self, dtm, breaks=None):
         if is_numeric_dtype(dtm['value']):  # numeric variable
@@ -827,7 +825,7 @@ class QuantileInitBin(WOEBin):
             breaks = np.quantile(xvalue,
                                  np.linspace(0, 1, self.n_bins + 1),
                                  method='nearest')
-            breaks = np.unique(breaks)
+            breaks = round_(np.unique(breaks), self.sig_figs)
             breaks[0] = -np.inf
             breaks[-1] = np.inf
         else:
@@ -1193,9 +1191,9 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
     x_vars = list(set(x_vars_bin).intersection(x_vars_dt))
     n_x = len(x_vars)
     # initial data set
-    dat = dt.loc[:, x_vars]
+    dat = dt.loc[:, list(set(x_vars_dt) - set(x_vars))]
 
-    if (no_cores is None) or (no_cores < 1):
+    if no_cores is None or no_cores < 1:
         all_cores = mp.cpu_count() - 1
         no_cores = int(
             np.ceil(n_x / 5 if n_x / 5 < all_cores else all_cores * 0.9))
@@ -1207,7 +1205,7 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
             pd.DataFrame({
                 'y': 0,  # 不重要
                 'variable': var,
-                'value': dat[var]
+                'value': dt[var]
             }),
             bins[var],
             value) for var in x_vars
@@ -1219,8 +1217,6 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
         pool = mp.Pool(processes=no_cores)
         dat_suffix = pool.starmap(WOEBin.apply, tasks)
         pool.close()
-
-    print(dat_suffix)
 
     dat = pd.concat([dat] + dat_suffix, axis=1)
 
@@ -1394,3 +1390,85 @@ def make_scorecard(sc_bins, coef, *, base_points=600, base_odds=50, pdo=20):
     score_df = pd.concat(score_df, ignore_index=True)
     score_df['score'] = np.round(score_df['score'], 2)
     return score_df
+
+
+def woebin_breaks(bins):
+    """
+    从woebin返回结果中提取切分点及特殊值
+    Args:
+        bins: woebin函数的返回结果
+
+    Returns:
+        breaks字典和special_values字典组成的元组
+
+    """
+
+    def get_breaks(binning):
+        if np.any(binning['is_special_values']):
+            special_values = binning[binning['is_special_values']]['breaks']
+            special_values = special_values.tolist()
+        else:
+            special_values = None
+
+        breaks = binning[~binning['is_special_values']]['breaks']
+        breaks = breaks.tolist()
+        return {'breaks': breaks, 'special_values': special_values}
+
+    brk_spcs = {key: get_breaks(value) for key, value in bins.items()}
+    breaks = {k: v['breaks'] for k, v in brk_spcs.items()}
+    special_values = {
+        k: v['special_values']
+        for k, v in brk_spcs.items()
+        if v['special_values']
+    }
+    return breaks, special_values
+
+
+def woebin_psi(df_base, df_cmp, bins):
+    """
+    计算变量PSI
+
+    Args:
+        df_base: 基准数据集，一般为训练集
+        df_cmp: 比较数据集，一般为测试集、OOT等等
+        bins: 变量分箱结果，由`woebin`返回
+
+    Returns:
+        pd.DataFrame，包含variable, bin, base%, cmp%, total_psi五列
+
+    """
+    X_base = woebin_ply(df_base, bins, value='bin')
+    X_cmp = woebin_ply(df_cmp, bins, value='bin')
+
+    vars_base = [v for v in X_base.columns if v.endswith('_bin')]
+    vars_cmp = [v for v in X_cmp.columns if v.endswith('_bin')]
+    variables = list(set(vars_base).intersection(set(vars_cmp)))
+
+    X_base['set'] = 'base'
+    X_cmp['set'] = 'cmp'
+
+    dat = pd.concat([X_base, X_cmp])
+    dat['idx'] = dat.index
+
+    psi_dfs = []
+
+    for variable in variables:
+        psi_df = pd.pivot_table(dat,
+                                index=variable,
+                                columns=['set'],
+                                values=['idx'],
+                                aggfunc='count')
+        psi_df.columns = ['base', 'cmp']
+        psi_df['variable'] = variable[:-4]
+        psi_df['bin'] = psi_df.index
+        psi_df.reset_index(drop=True, inplace=True)
+
+        psi_df = psi_df.assign(
+            base_distr=lambda x: x['base'] / x['base'].sum(),
+            cmp_distr=lambda x: x['cmp'] / x['cmp'].sum()).assign(
+                psi=lambda x: psi(x['base_distr'], x['cmp_distr']))[[
+                    'variable', 'bin', 'base_distr', 'cmp_distr', 'psi'
+                ]]
+        psi_dfs.append(psi_df)
+
+    return pd.concat(psi_dfs, ignore_index=True)

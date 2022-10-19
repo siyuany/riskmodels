@@ -19,10 +19,13 @@ def model_perf(y_true, y_pred) -> Dict[str, float]:
     y_true_new = y_true[labeled_selector]
     y_pred_new = y_pred[labeled_selector]
 
-    auc = roc_auc_score(y_true_new, y_pred_new)
-    if auc < 0.5:
-        auc = 1 - auc
-    ks = ks_score(y_true_new, y_pred_new)
+    if np.sum(y_true_new) > 0 and np.prod(y_true_new) == 0:
+        auc = roc_auc_score(y_true_new, y_pred_new)
+        if auc < 0.5:
+            auc = 1 - auc
+        ks = ks_score(y_true_new, y_pred_new)
+    else:
+        auc = ks = np.nan
 
     return {'auc': auc, 'ks': ks}
 
@@ -31,8 +34,8 @@ def model_eval(df, target, pred) -> pd.Series:
     perf = model_perf(df[target], df[pred])
     auc = perf['auc']
     ks = perf['ks']
-    bad_rate = np.sum(df[target]) / np.sum(
-        np.where(df[target].isin([0, 1]), 1, 0))
+    tmp_df = df[df[target].isin([0, 1])]
+    bad_rate = np.mean(tmp_df[target])
     return pd.Series([bad_rate, auc, ks], index=['bad_rate', 'auc', 'ks'])
 
 

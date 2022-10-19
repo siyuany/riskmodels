@@ -17,7 +17,7 @@ class LogisticRegressionCV(object):
         y_predicted = None
         y_actual = None
 
-        cv_wrapper = check_cv(self._cv, y=y, classifier=True)
+        cv_wrapper = check_cv(self._cv(), y=y, classifier=True)
 
         for train_index, test_index in cv_wrapper.split(X, y):
             X_train, X_test = X[train_index], X[test_index]

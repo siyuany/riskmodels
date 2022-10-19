@@ -84,3 +84,35 @@ def monotonic(series: pd.Series) -> str:
                     series[i:].is_monotonic_increasing:
                 return 'up_u_shape'
     return 'non_monotonic'
+
+
+def round_(a, significant_figures=1):
+    """
+    按照有效数字个数进行四舍五入
+
+    Args:
+        a:
+        significant_figures:
+
+    Returns:
+
+    """
+    e = np.ceil(np.log10(np.where(a == 0, 1, np.abs(a))))
+    sig_figs = a / 10**e
+    sig_figs = np.round(sig_figs, significant_figures)
+    return sig_figs * 10**e
+
+
+def interactive_mode():
+    # noinspection PyPackageRequirements
+    import __main__ as main
+    if hasattr(main, '__file__'):
+        return False
+    else:
+        return True
+
+
+def str_to_list(x):
+    if x is not None and isinstance(x, str):
+        x = [x]
+    return x
