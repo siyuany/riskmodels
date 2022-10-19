@@ -24,6 +24,8 @@ from pandas.api.types import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
+from riskmodels.utils import monotonic
+
 
 def interactive_mode():
     # noinspection PyPackageRequirements
@@ -1311,3 +1313,78 @@ def woebin_plot(bins, x=None, title=None, show_iv=True):
         binx = bins[bins['variable'] == i].reset_index()
         plot_list[i] = plot_bin(binx, title, show_iv)
     return plot_list
+
+
+def sc_bins_to_df(sc_bins):
+    """
+    将 woebin 返回的结果转换为 woe 数据框、iv 数据框
+    Args:
+        sc_bins: dict, 由 woebin 返回，结构为 {'VAR_NAME': 'BIN_STATS'}
+
+    Returns:
+        (woe_df, iv_df)
+
+    """
+    woe_df = None
+    for key, value in sc_bins.items():
+        if woe_df is None:
+            woe_df = value
+        else:
+            woe_df = pd.concat([woe_df, value], axis=0, ignore_index=True)
+
+    def iv_stats(x):
+        iv = x.total_iv.max()
+        badrate = x['bad'].sum() / x['count'].sum()
+        lift = x.badprob / badrate
+        iv_interval = None
+        if iv < 0.02:
+            iv_interval = '(0, 0.02)'
+        elif iv < 0.05:
+            iv_interval = '[0.02, 0.05)'
+        elif iv < 0.08:
+            iv_interval = '[0.05, 0.08)'
+        elif iv < 0.1:
+            iv_interval = '[0.08, 0.1)'
+        elif iv < 0.2:
+            iv_interval = '[0.1, 0.2)'
+        else:
+            iv_interval = '[0.2, +)'
+
+        woe = x[x.bin != 'missing'].woe
+        monotonic_type = monotonic(woe)
+
+        return pd.Series(
+            [iv, iv_interval, monotonic_type,
+             lift.max(),
+             lift.min()],
+            index=['IV', 'IV区间', '单调性', '最大Lift', '最小Lift'],
+            dtype='object')
+
+    iv_df = woe_df.groupby(by='variable').apply(iv_stats)
+    iv_df.sort_values(by='IV', ascending=False, inplace=True)
+    return woe_df, iv_df
+
+
+def make_scorecard(sc_bins, coef, *, base_points=600, base_odds=50, pdo=20):
+    A = pdo / np.log(2)
+    B = base_points - A * np.log(base_odds)
+
+    base_score = -A * coef['const'] + B
+    score_df = [
+        pd.DataFrame({
+            'variable': ['base score'],
+            'bin': [''],
+            'woe': [''],
+            'score': [base_score]
+        })
+    ]
+
+    for var in coef.keys():
+        if var != 'const':
+            woe_df = sc_bins[var[:-4]][['variable', 'bin', 'woe']].copy()
+            woe_df['score'] = -A * coef[var] * woe_df['woe']
+            score_df.append(woe_df)
+
+    score_df = pd.concat(score_df, ignore_index=True)
+    score_df['score'] = np.round(score_df['score'], 2)
+    return score_df
