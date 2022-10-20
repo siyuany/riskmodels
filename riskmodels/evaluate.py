@@ -176,5 +176,7 @@ def swap_analysis_simple(df,
                             axis=1)
     swap_result.columns = [['total%', 'total%', 'bad_rate', 'bad_rate'],
                            swap_result.columns.tolist()]
+    swap_result.index.name = 'base'
+    swap_result.columns.name = 'cmp'
 
     return swap_result

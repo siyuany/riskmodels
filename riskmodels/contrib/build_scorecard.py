@@ -1,4 +1,5 @@
 # -*- encoding: utf-8 -*-
+import os
 
 import numpy as np
 import pandas as pd
@@ -6,12 +7,13 @@ import statsmodels.api as sm
 from pandas.io.excel import ExcelWriter
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-from riskmodels import woebin, stepwise_lr
-from riskmodels.models import group_split_cv
-from riskmodels.scorecard import sc_bins_to_df, woebin_ply, make_scorecard, \
-    woebin_psi
+from riskmodels.contrib.var_select import risk_trends_consistency
+from riskmodels.evaluate import (model_eval, gains_table, psi,
+                                 swap_analysis_simple)
+from riskmodels.models import group_split_cv, stepwise_lr
+from riskmodels.scorecard import (make_scorecard, sc_bins_to_df, woebin,
+                                  woebin_plot, woebin_ply, woebin_psi)
 from riskmodels.utils import str_to_list, sample_stats
-from riskmodels.evaluate import model_eval, gains_table, psi
 
 
 def build_scorecard(sample_df,
@@ -29,7 +31,10 @@ def build_scorecard(sample_df,
                     binning_methods=None,
                     binning_kwargs=None,
                     cv_group_field=None,
-                    compare_model_field=None,
+                    base_points=600,
+                    base_odds=50,
+                    pdo=20,
+                    compare_model_fields=None,
                     random_state=0):
     if binning_methods is None:
         binning_methods = ['quantile', 'tree']
@@ -79,15 +84,9 @@ def build_scorecard(sample_df,
     train_df = sample_df[(sample_df['_train_test_flag_'] == '01_train') &
                          (sample_df[target].isin([0, 1]))].copy().reset_index(
                              drop=True)
-    test_df = sample_df[(sample_df['_train_test_flag_'] == '02_test') &
-                        (sample_df[target].isin([0, 1]))].copy().reset_index(
-                            drop=True)
     oot_df = sample_df[(sample_df['_train_test_flag_'] == '03_oot') &
                        (sample_df[target].isin([0, 1]))].copy().reset_index(
                            drop=True)
-
-    if len(test_df) == 0:
-        test_df = None
 
     # 3. 变量分箱
     if binning_kwargs is None:
@@ -103,9 +102,14 @@ def build_scorecard(sample_df,
     woe_df.to_excel(excel_file, sheet_name='WOE分析', index_label='index')
     iv_df.to_excel(excel_file, sheet_name='IV分析', index_label='变量')
 
+    # 变量筛选
     selected_variables = iv_df[
         (iv_df['IV'] > variable_iv_limit) &
         iv_df['单调性'].isin(['increasing', 'decreasing'])].index.tolist()
+
+    var_risk_consist = risk_trends_consistency(
+        oot_df, sc_bins={v: bins[v] for v in selected_variables}, target=target)
+    selected_variables = [k for k, v in var_risk_consist.items() if v == 1.0]
 
     # 4.逐步回归
     train_X = woebin_ply(train_df[selected_variables],
@@ -161,9 +165,9 @@ def build_scorecard(sample_df,
 
     scorecard = make_scorecard(bins,
                                lr_model_result.params.to_dict(),
-                               base_points=600,
-                               base_odds=50,
-                               pdo=20)
+                               base_points=base_points,
+                               base_odds=base_odds,
+                               pdo=pdo)
     print(scorecard)
     scorecard.to_excel(excel_file,
                        sheet_name='模型表达',
@@ -173,6 +177,8 @@ def build_scorecard(sample_df,
     # 模型评估
     all_sample_X = woebin_ply(
         sample_df[[var[:-4] for var in selected_variables]], bins)
+    # 这一步非常重要！！
+    all_sample_X = all_sample_X[selected_variables]
     all_sample_X = sm.add_constant(all_sample_X)
 
     sample_df['prob'] = lr_model_result.predict(all_sample_X)
@@ -192,8 +198,8 @@ def build_scorecard(sample_df,
             perf.to_excel(excel_file, sheet_name='模型评估', startrow=row_cnt)
             row_cnt += len(perf) + 2
 
-    A = 20 / np.log(2)
-    B = 600 - A * np.log(50)
+    A = pdo / np.log(2)
+    B = base_points - A * np.log(base_odds)
 
     sample_df['score'] = np.round(A * np.log(
         (1 - sample_df['prob']) / sample_df['prob']) + B)
@@ -252,17 +258,17 @@ def build_scorecard(sample_df,
     if alternative_target is not None:
         alternative_target = str_to_list(alternative_target)
 
-    for y in alternative_target:
-        perf = sample_df.groupby('_train_test_flag_').apply(model_eval,
-                                                            target=y,
-                                                            pred='prob')
-        pd.DataFrame([y]).to_excel(excel_file,
-                                   sheet_name='模型评估',
-                                   index=False,
-                                   header=False,
-                                   startrow=row_cnt)
-        perf.to_excel(excel_file, sheet_name='模型评估', startrow=row_cnt + 1)
-        row_cnt += len(perf) + 3
+        for y in alternative_target:
+            perf = sample_df.groupby('_train_test_flag_').apply(model_eval,
+                                                                target=y,
+                                                                pred='prob')
+            pd.DataFrame([y]).to_excel(excel_file,
+                                       sheet_name='模型评估',
+                                       index=False,
+                                       header=False,
+                                       startrow=row_cnt)
+            perf.to_excel(excel_file, sheet_name='模型评估', startrow=row_cnt + 1)
+            row_cnt += len(perf) + 3
 
     # PSI
     var_psi = woebin_psi(
@@ -282,4 +288,29 @@ def build_scorecard(sample_df,
     print(psi_df)
     psi_df.to_excel(excel_file, sheet_name='PSI分析', index=False)
 
+    # Swap分析（如有）
+    compare_model_fields = str_to_list(compare_model_fields)
+    row_cnt = 0
+    if compare_model_fields:
+        for model in compare_model_fields:
+            print(f'新模型 vs {model.upper()}\n')
+            swap_tbl = swap_analysis_simple(sample_df,
+                                            base_model='score',
+                                            compare_model=model,
+                                            target_col=target,
+                                            reject_ratio=0.2)
+            swap_tbl.to_excel(excel_file, sheet_name='Swap分析', startrow=row_cnt)
+            row_cnt += len(swap_tbl) + 5
+            print(swap_tbl, '\n\n')
+
     excel_file.close()
+
+    woe_plots = woebin_plot({k[:-4]: bins[k[:-4]] for k in selected_variables})
+    if not os.path.exists('pic'):
+        os.mkdir('pic')
+
+    if not os.path.isdir('pic'):
+        raise NotADirectoryError('当前目录下pic路径不是目录，无法保存WOE图')
+    else:
+        for v, plt in woe_plots.items():
+            plt.savefig(f'pic/{v}.png')
