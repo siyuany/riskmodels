@@ -30,12 +30,39 @@ def build_scorecard(sample_df,
                     special_values=None,
                     binning_methods=None,
                     binning_kwargs=None,
-                    cv_group_field=None,
+                    cv=None,
                     base_points=600,
                     base_odds=50,
                     pdo=20,
                     compare_model_fields=None,
                     random_state=0):
+    """
+
+    Args:
+        sample_df:
+        features:
+        target:
+        train_filter:
+        oot_filter:
+        output_excel_file:
+        variable_iv_limit:
+        sample_stat_group_fields:
+        alternative_target:
+        regression_p_limit:
+        random_test_set:
+        special_values:
+        binning_methods:
+        binning_kwargs:
+        cv:
+        base_points:
+        base_odds:
+        pdo:
+        compare_model_fields:
+        random_state:
+
+    Returns:
+
+    """
     if binning_methods is None:
         binning_methods = ['quantile', 'tree']
 
@@ -94,7 +121,6 @@ def build_scorecard(sample_df,
     bins = woebin(train_df,
                   x=features,
                   y=target,
-                  no_cores=1,
                   special_values=special_values,
                   methods=binning_methods,
                   **binning_kwargs)
@@ -112,15 +138,13 @@ def build_scorecard(sample_df,
     selected_variables = [k for k, v in var_risk_consist.items() if v == 1.0]
 
     # 4.逐步回归
-    train_X = woebin_ply(train_df[selected_variables],
-                         bins,
-                         value='woe',
-                         no_cores=1)
+    train_X = woebin_ply(train_df[selected_variables], bins, value='woe')
     train_y = train_df[target]
+
     _, selected_variables = stepwise_lr(
         train_X,
         train_y.values,
-        cv=lambda: group_split_cv(train_df[cv_group_field]),
+        cv=(lambda: group_split_cv(train_df[cv])) if isinstance(cv, str) else cv,
         x=[f + '_woe' for f in selected_variables],
         max_num_features=30)
 

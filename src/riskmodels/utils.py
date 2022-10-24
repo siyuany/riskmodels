@@ -1,4 +1,5 @@
 # -*- encoding: utf-8 -*-
+from functools import wraps
 
 import numpy as np
 import pandas as pd
@@ -116,3 +117,18 @@ def str_to_list(x):
     if x is not None and isinstance(x, str):
         x = [x]
     return x
+
+
+def exception_trace(func):
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            return result
+        except Exception as e:
+            raise RuntimeError(f'Error in running {func.__name__} with '
+                               f'args={args}'
+                               f'kwargs={kwargs}')
+
+    return wrapper

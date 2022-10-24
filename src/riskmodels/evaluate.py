@@ -108,17 +108,21 @@ def gains_table(
 
 def psi(base_distr, cmp_distr, epsilon=1e-3):
     """计算PSI (Population Stability Index)"""
-    base_distr = np.asarray(base_distr)
-    base_distr = base_distr / base_distr.sum()
-    if np.any(base_distr == 0):
-        base_distr = base_distr + epsilon
-        base_distr = base_distr / base_distr.sum()
 
-    cmp_distr = np.asarray(cmp_distr)
-    cmp_distr = cmp_distr / cmp_distr.sum()
-    if np.any(cmp_distr == 0):
-        cmp_distr = cmp_distr + epsilon
-        cmp_distr = cmp_distr / cmp_distr.sum()
+    def distr_preprocess(distr_arr):
+        distr_arr = np.asarray(distr_arr)
+        distr_arr = np.where(np.isnan(distr_arr), 0, distr_arr)
+        distr_arr = distr_arr / np.sum(distr_arr)
+
+        # 填充0值
+        if np.any(distr_arr == 0):
+            distr_arr = distr_arr + epsilon
+            distr_arr = distr_arr / base_distr.sum()
+
+        return distr_arr
+
+    base_distr = distr_preprocess(base_distr)
+    cmp_distr = distr_preprocess(cmp_distr)
 
     # calculate psi
     psi_value = (base_distr - cmp_distr) * np.log(base_distr / cmp_distr)

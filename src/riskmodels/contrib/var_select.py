@@ -32,7 +32,6 @@ def risk_trends_consistency(df, sc_bins, target):
                      special_values=spc_val)
 
     consistency = {}
-
     for v in variables:
         old_bin = sc_bins[v]
         old_bin = old_bin[~old_bin['is_special_values']]

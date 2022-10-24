@@ -19,7 +19,6 @@ scorecard.py - 变量分箱算法
 """
 import itertools
 import multiprocessing as mp
-import platform
 import re
 import time
 import warnings
@@ -32,7 +31,7 @@ from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
 from riskmodels.evaluate import psi
-from riskmodels.utils import monotonic, round_, interactive_mode, str_to_list
+from riskmodels.utils import monotonic, round_, str_to_list, exception_trace
 
 
 def check_const_cols(dat):
@@ -268,7 +267,7 @@ def woebin(dt,
         dt = check_datetime_cols(dt)
     # check categorical columns' unique values
     if check_cate_num:
-        var_skip = check_cat_var_uniques(dt, var_skip)
+        var_skip = check_cat_var_uniques(dt, var_skip=var_skip)
     # replace black with na
     if replace_blank:
         dt = rep_blank_na(dt)
@@ -287,13 +286,12 @@ def woebin(dt,
         all_cores = mp.cpu_count() - 1
         no_cores = int(
             np.ceil(xs_len / 5 if xs_len / 5 < all_cores else all_cores * 0.9))
-    if platform.system() == 'Windows' and interactive_mode():
-        no_cores = 1
 
     # y list to str
     y = y[0]
 
     woe_bin = WOEBinFactory.build(methods, **kwargs)
+
     tasks = [
         (
             # dtm definition
@@ -308,6 +306,8 @@ def woebin(dt,
             special_values.get(x_i)) for x_i in xs
     ]
 
+    print(f'开始分箱，特征数 {len(tasks)}，样本数 {len(dt)}')
+
     if no_cores == 1:
         bins = dict(zip(xs, itertools.starmap(woe_bin, tasks)))
     else:
@@ -317,11 +317,10 @@ def woebin(dt,
 
     # running time
     running_time = time.time() - start_time
-    print('Binning on {} rows and {} columns in {}'.format(
+    print('分箱完成：Binning on {} rows and {} columns in {}'.format(
         dt.shape[0], len(xs),
         time.strftime("%H:%M:%S", time.gmtime(running_time))))
-    # if save_breaks_list is not None:
-    #     bins_to_breaks(bins, dt, to_string=True, save_string=save_breaks_list)
+
     return bins
 
 
@@ -401,12 +400,12 @@ class WOEBinFactory(object):
         参数，并传递给子类初始化方法。通常的组装方式为细分箱类(*InitBin) +
         粗分箱类(*OptimBin)。
 
-        >>> woebin = WOEBinFactory.build (['quantile', 'tree'],
+        >>> woe_bin = WOEBinFactory.build (['quantile', 'tree'],
         ...                               initial_bins=20,
         ...                               bin_num_limit=8,
         ...                               stop_limit=0.1,
         ...                               count_distr_limit=0.05)
-        >>> woebin
+        >>> woe_bin
         <riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
 
         Args:
@@ -590,6 +589,7 @@ class WOEBin(object):
 
         return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
 
+    @exception_trace
     def __call__(self, dtm, breaks=None, special_values=None):
         binning_split = self.dtm_binning_sv(dtm, special_values)
         binning_sv = binning_split['binning_sv']
@@ -606,7 +606,7 @@ class WOEBin(object):
 
         bin_list = {'binning_sv': binning_sv, 'binning': binning_dtm}
         binning = pd.concat(bin_list, keys=bin_list.keys()).reset_index() \
-            .assign(is_sv=lambda x: x.level_0 == 'binning_sv')
+                    .assign(is_sv=lambda x: x.level_0 == 'binning_sv')
 
         return self.binning_format(binning)
 
@@ -653,6 +653,8 @@ class WOEBin(object):
         """
         special_values = bin_res['breaks'][
             bin_res['is_special_values']].tolist()
+        if 'missing' in special_values:
+            special_values.remove('missing')
         if len(special_values) == 0:
             special_values = None
         breaks = bin_res['breaks'][~bin_res['is_special_values']]
@@ -1178,12 +1180,31 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         return iv.sum()
 
 
-def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
+def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
+    """
+    将woebin函数返回分箱结果进行应用，与`scorecardpy.woebin_ply`相比，增加参数`value`。
+    该参数可选值为['woe', 'index', 'bin']，当 value='woe' 时，将原始值替换为woe值；
+    当 value='index' 时，将原始值替换为变量分箱结果数据框中的 index ，即0, 1, 2,...，可用于
+    one-hot编码等进一步处理；当 value='bin' 时，返回结果为分箱区间 [a,b) 【数值型变量】或
+    a%,%b 【类别型变量】。
+
+    注意，对应不同 value 参数值，返回数据框中变量名后缀会相应改变。假设原始变量名为 'var_123'，
+    返回数据框中列名对应为 'var_123_{value}'。
+
+    Args:
+        dt: 包含变量原始值的数据框
+        bins: woebin分箱结果
+        no_cores: 多进程数量
+        replace_blank: 是否将空字符串 '' 替换为 np.nan。注意若为 True 本函数非常耗时，
+            建议在预处理阶段就完成该操作。保留该参数是为了保持与 scorecardpy 的兼容性。
+        value: 返回值类别，可选['woe', 'index', 'bin']。
+
+    Returns:
+        pd.DataFrame，包含入参数据框中未替换的所有列，和替换后的变量列。
+
+    """
     # start time
     start_time = time.time()
-
-    if replace_blank:
-        dt = rep_blank_na(dt)
 
     # x variables
     x_vars_bin = bins.keys()
@@ -1191,13 +1212,15 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=True, value='woe'):
     x_vars = list(set(x_vars_bin).intersection(x_vars_dt))
     n_x = len(x_vars)
     # initial data set
-    dat = dt.loc[:, list(set(x_vars_dt) - set(x_vars))]
+    dat = dt.loc[:, list(set(x_vars_dt) - set(x_vars))].copy()
+
+    if replace_blank:
+        dat = rep_blank_na(dat)
 
     if no_cores is None or no_cores < 1:
         all_cores = mp.cpu_count() - 1
         no_cores = int(
             np.ceil(n_x / 5 if n_x / 5 < all_cores else all_cores * 0.9))
-
     no_cores = max(no_cores, 1)
 
     tasks = [
@@ -1407,6 +1430,18 @@ def woebin_breaks(bins):
         if np.any(binning['is_special_values']):
             special_values = binning[binning['is_special_values']]['breaks']
             special_values = special_values.tolist()
+
+            # 注意，此处需要将 missing 从 special_values 中排除。否则当 dtm 无空值
+            # 且 value 为数值型，而 special_values 中存在 missing 时，
+            # WOEBin.split_special_values 中 merge 步会报如下错误：
+            # ValueError: You are trying to merge on float64 and object columns.
+            # If you wish to proceed you should use pd.concat
+
+            if 'missing' in special_values:
+                special_values.remove('missing')
+            if len(special_values) == 0:
+                special_values = None
+
         else:
             special_values = None
 
@@ -1437,8 +1472,12 @@ def woebin_psi(df_base, df_cmp, bins):
         pd.DataFrame，包含variable, bin, base%, cmp%, total_psi五列
 
     """
-    X_base = woebin_ply(df_base, bins, value='bin')
-    X_cmp = woebin_ply(df_cmp, bins, value='bin')
+
+    # replace_blank is very expensive, so set the arg to False. But this may
+    # cause errors. A good practice is replacing the blank str to np.nan in
+    # data preprocessing procedure.
+    X_base = woebin_ply(df_base, bins, value='bin', replace_blank=False)
+    X_cmp = woebin_ply(df_cmp, bins, value='bin', replace_blank=False)
 
     vars_base = [v for v in X_base.columns if v.endswith('_bin')]
     vars_cmp = [v for v in X_cmp.columns if v.endswith('_bin')]
