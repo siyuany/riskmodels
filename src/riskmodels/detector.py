@@ -46,7 +46,7 @@ def getDescribe(series, percentiles=[.25, .5, .75]):
     return d.drop('count')
 
 
-def countBlank(series, blanks=[]):
+def countBlank(series, blanks=None):
     """Count number and percentage of blank values in series
     Args:
         series (Series): data series
@@ -55,6 +55,9 @@ def countBlank(series, blanks=[]):
         number: number of blanks
         str: the percentage of blank values
     """
+    if blanks is None:
+        blanks = []
+
     if len(blanks) > 0:
         isnull = series.replace(blanks, None).isnull()
     else:
@@ -62,11 +65,11 @@ def countBlank(series, blanks=[]):
     n = isnull.sum()
     ratio = isnull.mean()
 
-    return (n, "{0:.2%}".format(ratio))
+    return n, "{0:.2%}".format(ratio)
 
 
 def isNumeric(series):
-    """Check if the series's type is numeric
+    """Check if the series' type is numeric
     Args:
         series (Series): data series
     Returns:
