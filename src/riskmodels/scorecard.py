@@ -481,7 +481,7 @@ class WOEBin(object):
     @staticmethod
     def split_vec_to_df(vec):
         """
-        特殊值列表转DataFrame, 如下例所示：
+        特殊值/断点列表转DataFrame, 如下例所示：
 
         >>> vec
         ['missing', '1', '2', '3%,%4']
@@ -500,15 +500,16 @@ class WOEBin(object):
             pd.DataFrame，包含如下四列 'bin_char', 'rowid', 'value'
 
         """
-        if vec is not None:
-            vec = [str(i) for i in vec]
-            a = pd.DataFrame({'bin_chr': vec}).assign(rowid=lambda x: x.index)
-            b = pd.DataFrame([i.split('%,%') for i in vec], index=vec) \
-                .stack().replace('missing', np.nan) \
-                .reset_index(name='value') \
-                .rename(columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
+        assert vec is not None, 'vec cannot be None'
+        vec = [str(i) for i in vec]
+        a = pd.DataFrame({'bin_chr': vec}).assign(rowid=lambda x: x.index)
+        b = pd.DataFrame([i.split('%,%') for i in vec], index=vec) \
+            .stack().replace('missing', np.nan) \
+            .reset_index(name='value') \
+            .rename(columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
 
-            return pd.merge(a, b, on='bin_chr')
+        df = pd.merge(a, b, on='bin_chr')
+        return df
 
     @classmethod
     def split_special_values(cls, dtm, spl_val):
@@ -589,7 +590,6 @@ class WOEBin(object):
 
         return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
 
-    @exception_trace
     def __call__(self, dtm, breaks=None, special_values=None):
         binning_split = self.dtm_binning_sv(dtm, special_values)
         binning_sv = binning_split['binning_sv']
@@ -605,8 +605,9 @@ class WOEBin(object):
                 binning_dtm = self.binning_breaks(dtm, breaks)
 
         bin_list = {'binning_sv': binning_sv, 'binning': binning_dtm}
-        binning = pd.concat(bin_list, keys=bin_list.keys()).reset_index() \
-                    .assign(is_sv=lambda x: x.level_0 == 'binning_sv')
+        binning = pd.concat(bin_list, keys=bin_list.keys())
+        binning = binning.reset_index()
+        binning = binning.assign(is_sv=lambda x: x.level_0 == 'binning_sv')
 
         return self.binning_format(binning)
 
@@ -746,6 +747,11 @@ class WOEBin(object):
         else:
             dtm = pd.merge(dtm, break_df, how='left', on='value')
             binning = self.binning(dtm, dtm['bin_chr'])
+            # 保持分箱顺序与传入参数一致
+            binning['bin_chr'] = binning['bin_chr'].astype(
+                'category').cat.set_categories(breaks, ordered=True)
+            binning = binning.sort_values(by='bin_chr').reset_index(drop=True)
+
         return binning
 
     def binning_format(self, binning):
@@ -778,7 +784,7 @@ class WOEBin(object):
 
         binning['breaks'] = binning['bin_chr'].apply(_extract_breaks)
         binning['is_special_values'] = binning['is_sv']
-        binning.rename(columns={'bin_chr': 'bin'}, inplace=True)
+        binning['bin'] = binning['bin_chr'].astype('str')
 
         return binning[[
             'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
@@ -1391,10 +1397,10 @@ def sc_bins_to_df(sc_bins):
 
 
 def make_scorecard(sc_bins, coef, *, base_points=600, base_odds=50, pdo=20):
-    A = pdo / np.log(2)
-    B = base_points - A * np.log(base_odds)
+    a = pdo / np.log(2)
+    b = base_points - a * np.log(base_odds)
 
-    base_score = -A * coef['const'] + B
+    base_score = -a * coef['const'] + b
     score_df = [
         pd.DataFrame({
             'variable': ['base score'],
@@ -1407,7 +1413,7 @@ def make_scorecard(sc_bins, coef, *, base_points=600, base_odds=50, pdo=20):
     for var in coef.keys():
         if var != 'const':
             woe_df = sc_bins[var[:-4]][['variable', 'bin', 'woe']].copy()
-            woe_df['score'] = -A * coef[var] * woe_df['woe']
+            woe_df['score'] = -a * coef[var] * woe_df['woe']
             score_df.append(woe_df)
 
     score_df = pd.concat(score_df, ignore_index=True)
