@@ -6,6 +6,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import check_cv
 
+import riskmodels.logging as logging
+
 
 class LogisticRegressionCV(object):
 
@@ -85,10 +87,11 @@ def stepwise_lr(df, y, x, cv=3, max_num_features=30, **lr_kwargs):
                 feature_pool = [f for f in x if f not in selected_features]
 
         if improved:
-            print(f'Step {step}:\nSelected features: {selected_features}\n'
-                  f'Performance: auc={best_metrics}')
+            logging.info(
+                f'Step {step}:\nSelected features: {selected_features}\n'
+                f'Performance: auc={best_metrics}')
         else:
-            print('No improve. Exit.')
+            logging.info('No improve. Exit.')
             break
 
     return best_metrics, selected_features
