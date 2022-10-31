@@ -21,7 +21,6 @@ import itertools
 import multiprocessing as mp
 import re
 import time
-import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,15 +29,16 @@ from pandas.api.types import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
+import riskmodels.logging as logging
 from riskmodels.evaluate import psi
-from riskmodels.utils import monotonic, round_, str_to_list, exception_trace
+from riskmodels.utils import monotonic, round_, str_to_list
 
 
 def check_const_cols(dat):
     # remove only 1 unique values variable
     unique1_cols = [i for i in list(dat) if len(dat[i].unique()) == 1]
     if len(unique1_cols) > 0:
-        warnings.warn(
+        logging.warn(
             "There are {} columns have only one unique values, which are "
             "removed from input dataset. \n (ColumnNames: {})".format(
                 len(unique1_cols), ', '.join(unique1_cols)))
@@ -52,7 +52,7 @@ def check_datetime_cols(dat):
             pd.to_datetime,
             errors='ignore').select_dtypes('datetime64').columns.tolist()
     if len(datetime_cols) > 0:
-        warnings.warn(
+        logging.warn(
             "There are {} date/time type columns are removed from input "
             "dataset. \n (ColumnNames: {})".format(len(datetime_cols),
                                                    ', '.join(datetime_cols)))
@@ -93,7 +93,7 @@ def rep_blank_na(dat):
     # remove duplicated index
     if dat.index.duplicated().any():
         dat = dat.reset_index(drop=True)
-        warnings.warn(
+        logging.warn(
             'There are duplicated index in dataset. The index has been reset.')
 
     blank_cols = [
@@ -101,7 +101,7 @@ def rep_blank_na(dat):
             lambda x: 0 if len(x) == 0 else 1).sum() > 0
     ]
     if len(blank_cols) > 0:
-        warnings.warn(
+        logging.warn(
             'There are blank strings in {} columns, which are replaced with '
             'NaN. \n (ColumnNames: {})'.format(len(blank_cols),
                                                ', '.join(blank_cols)))
@@ -132,7 +132,7 @@ def check_y(dat, y, positive):
 
     # remove na in y
     if dat[y].isnull().any():
-        warnings.warn(
+        logging.warn(
             "There are NaNs in \'{}\' column. The rows with NaN in \'{}\' were"
             " removed from dat.".format(y, y))
         dat = dat.dropna(subset=[y])
@@ -150,7 +150,7 @@ def check_y(dat, y, positive):
                               if str(x) in re.split(r'\|', positive) else 0)
             if np.any(y1 != y2):
                 dat.loc[:, y] = y2
-                warnings.warn(
+                logging.warn(
                     "The positive value in \"{}\" was replaced by 1 and "
                     "negative value by 0.".format(y))
         else:
@@ -165,7 +165,7 @@ def check_y(dat, y, positive):
 
 def check_print_step(print_step):
     if not isinstance(print_step, (int, float)) or print_step < 0:
-        warnings.warn(
+        logging.warn(
             "Incorrect inputs; print_step should be a non-negative integer. "
             "It was set to 1.")
         print_step = 1
@@ -188,7 +188,7 @@ def x_variable(dat, y, x, var_skip=None):
         else:
             x_not_in_x_all = set(x).difference(x_all)
             if len(x_not_in_x_all) > 0:
-                warnings.warn(
+                logging.warn(
                     "Incorrect inputs; there are {} x variables are not exist "
                     "in input data, which are removed from x. \n({})".format(
                         len(x_not_in_x_all), ', '.join(x_not_in_x_all)))
@@ -216,7 +216,7 @@ def check_special_values(special_values, xs) -> dict:
         # if isinstance(special_values, str):
         #     special_values = eval(special_values)
         if isinstance(special_values, list):
-            warnings.warn(
+            logging.warn(
                 "The special_values should be a dict. Make sure special values "
                 "are exactly the same in all variables if special_values is "
                 "a list.")
@@ -306,7 +306,7 @@ def woebin(dt,
             special_values.get(x_i)) for x_i in xs
     ]
 
-    print(f'开始分箱，特征数 {len(tasks)}，样本数 {len(dt)}')
+    logging.info(f'开始分箱，特征数 {len(tasks)}，样本数 {len(dt)}')
 
     if no_cores == 1:
         bins = dict(zip(xs, itertools.starmap(woe_bin, tasks)))
@@ -317,7 +317,7 @@ def woebin(dt,
 
     # running time
     running_time = time.time() - start_time
-    print('分箱完成：Binning on {} rows and {} columns in {}'.format(
+    logging.info('分箱完成：Binning on {} rows and {} columns in {}'.format(
         dt.shape[0], len(xs),
         time.strftime("%H:%M:%S", time.gmtime(running_time))))
 
@@ -589,7 +589,6 @@ class WOEBin(object):
 
         return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
 
-    @exception_trace
     def __call__(self, dtm, breaks=None, special_values=None):
         binning_split = self.dtm_binning_sv(dtm, special_values)
         binning_sv = binning_split['binning_sv']
@@ -1245,10 +1244,8 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
 
     # running time
     running_time = time.time() - start_time
-    if running_time >= 10:
-        print('Woe transformation on {} rows and {} columns in {}'.format(
-            dt.shape[0], n_x,
-            time.strftime("%H:%M:%S", time.gmtime(running_time))))
+    logging.info('Woe transformation on {} rows and {} columns in {}'.format(
+        dt.shape[0], n_x, time.strftime("%H:%M:%S", time.gmtime(running_time))))
     return dat
 
 
