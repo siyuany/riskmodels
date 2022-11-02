@@ -129,7 +129,10 @@ def psi(base_distr, cmp_distr, epsilon=1e-3):
     return psi_value.sum()
 
 
-def swap_analysis(df, base_model, compare_model, target_col):
+def swap_analysis(df, base_model, compare_model, target_col, retval='badrate'):
+    assert retval in ['badrate', 'badcnt', 'totalcnt', 'all'], ValueError(
+        'argument retval should be one of \'badrate\', \'badcnt\', '
+        f'\'totalcnt\', and \'all\', get {retval}')
     df = df[df[target_col].isin([0, 1]) & (~df[base_model].isna()) &
             (~df[compare_model].isna())].copy()
     df[base_model + '_seg'] = pd.qcut(df[base_model],
@@ -143,14 +146,22 @@ def swap_analysis(df, base_model, compare_model, target_col):
                                columns=compare_model + '_seg',
                                values=target_col,
                                aggfunc='count')
+    if retval == 'totalcnt':
+        return total_cnt
+
     bad_cnt = pd.pivot_table(df,
                              index=base_model + '_seg',
                              columns=compare_model + '_seg',
                              values=target_col,
                              aggfunc='sum')
-    bad_rate = bad_cnt / total_cnt
+    if retval == 'badcnt':
+        return bad_cnt
 
-    return bad_rate
+    bad_rate = bad_cnt / total_cnt
+    if retval == 'badrate':
+        return bad_rate
+
+    return total_cnt, bad_cnt, bad_rate
 
 
 def swap_analysis_simple(df,
