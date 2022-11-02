@@ -1004,6 +1004,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
                                    f"需要传入初始分箱（细分箱）结果"
         binning = self.initial_binning(dtm, breaks)
         binning_chi2 = self.chi2_stat(binning)
+        binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
 
         # Start merge loop
         while True:
