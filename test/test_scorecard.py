@@ -17,13 +17,13 @@ except ModuleNotFoundError as e:
 class TestWOEBin(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.df = pd.read_csv('germancredit.csv')
+        self.df = pd.read_hdf('dataset.h5', key='germancredit')
+        self.df2 = pd.read_hdf('dataset.h5', key='creditcard')
 
     def test_split_vec_to_df(self):
         x = ['b%,%d', 'a', 'c%,%e']
         df = WOEBin.split_vec_to_df(x)
         print(df)
-
 
     def test_woebin_cat_vars(self):
         tmp_df = pd.DataFrame({
@@ -33,6 +33,16 @@ class TestWOEBin(unittest.TestCase):
         })
         woe_bin_method = WOEBinFactory.build(['quantile', 'tree'])
         binning_result = woe_bin_method(tmp_df)
+        print(binning_result)
+
+    def test_chi2_woebin(self):
+        binner = WOEBinFactory.build(['quantile', 'chi2'])
+        tmp_df = pd.DataFrame({
+            'variable': 'V3',
+            'value': self.df2['V3'],
+            'y': self.df2['Class']
+        })
+        binning_result = binner(tmp_df)
         print(binning_result)
 
 
