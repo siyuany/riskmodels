@@ -1,8 +1,9 @@
 # -*- encoding: utf-8 -*-
 
+import unittest
+
 import numpy as np
 import pandas as pd
-import unittest
 
 from addpath import addpath
 
@@ -10,6 +11,7 @@ try:
     addpath()
     from riskmodels.scorecard import WOEBinFactory
     from riskmodels.scorecard import WOEBin
+    from riskmodels.contrib.build_scorecard import build_scorecard
 except ModuleNotFoundError as e:
     raise e
 
@@ -34,6 +36,16 @@ class TestWOEBin(unittest.TestCase):
         woe_bin_method = WOEBinFactory.build(['quantile', 'tree'])
         binning_result = woe_bin_method(tmp_df)
         print(binning_result)
+
+    def test_build_scorecard(self):
+        features = self.df2.columns.tolist()[1:-1]
+        print(np.quantile(self.df2['Time'], q=0.8))
+        build_scorecard(self.df2,
+                        features=features,
+                        target='Class',
+                        train_filter=lambda x: x['Time'] <= 140000,
+                        oot_filter=lambda x: x['Time'] > 140000,
+                        output_excel_file='test.xlsx')
 
 
 if __name__ == '__main__':

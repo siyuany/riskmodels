@@ -75,7 +75,8 @@ def gains_table(
     if breaks is None:
         _, breaks = pd.qcut(pred_df.score,
                             np.linspace(0, 1, split + 1),
-                            retbins=True)
+                            retbins=True,
+                            duplicates='drop')
     else:
         breaks = np.asarray(breaks)
 
