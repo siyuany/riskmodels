@@ -130,18 +130,38 @@ def psi(base_distr, cmp_distr, epsilon=1e-3):
     return psi_value.sum()
 
 
-def swap_analysis(df, base_model, compare_model, target_col, retval='badrate'):
+def swap_analysis(df,
+                  base_model,
+                  compare_model,
+                  target_col,
+                  base_breaks=None,
+                  compare_breaks=None,
+                  segments=10,
+                  right=False,
+                  retval='badrate'):
     assert retval in ['badrate', 'badcnt', 'totalcnt', 'all'], ValueError(
         'argument retval should be one of \'badrate\', \'badcnt\', '
         f'\'totalcnt\', and \'all\', get {retval}')
     df = df[df[target_col].isin([0, 1]) & (~df[base_model].isna()) &
             (~df[compare_model].isna())].copy()
-    df[base_model + '_seg'] = pd.qcut(df[base_model],
-                                      np.linspace(0, 1, 11),
-                                      duplicates='drop')
-    df[compare_model + '_seg'] = pd.qcut(df[compare_model],
-                                         np.linspace(0, 1, 11),
-                                         duplicates='drop')
+
+    if base_breaks is None:
+        df[base_model + '_seg'] = pd.qcut(df[base_model],
+                                          np.linspace(0, 1, segments + 1),
+                                          duplicates='drop')
+    else:
+        df[base_model + '_seg'] = pd.cut(df[base_model],
+                                         base_breaks,
+                                         right=right)
+
+    if compare_breaks is None:
+        df[compare_model + '_seg'] = pd.qcut(df[compare_model],
+                                             np.linspace(0, 1, segments + 1),
+                                             duplicates='drop')
+    else:
+        df[compare_model + '_seg'] = pd.cut(df[compare_model],
+                                            compare_breaks,
+                                            right=right)
     total_cnt = pd.pivot_table(df,
                                index=base_model + '_seg',
                                columns=compare_model + '_seg',
