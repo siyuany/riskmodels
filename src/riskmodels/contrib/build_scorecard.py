@@ -66,6 +66,9 @@ def build_scorecard(sample_df,
     if binning_methods is None:
         binning_methods = ['quantile', 'tree']
 
+    if cv is None:
+        cv = 3
+
     # check features
     features = list(set(features).intersection(sample_df.columns.tolist()))
 
@@ -144,7 +147,8 @@ def build_scorecard(sample_df,
     _, selected_variables = stepwise_lr(
         train_X,
         train_y.values,
-        cv=(lambda: group_split_cv(train_df[cv])) if isinstance(cv, str) else cv,
+        cv=(lambda: group_split_cv(train_df[cv]))
+        if isinstance(cv, str) else cv,
         x=[f + '_woe' for f in selected_variables],
         max_num_features=30)
 
