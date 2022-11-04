@@ -9,7 +9,8 @@ from logging import DEBUG, INFO, WARN, ERROR, FATAL
 
 if sys.version_info[0] == 3 and sys.version_info[1] >= 8:
     pass
-elif sys.version_info[0] == 3 and sys.version_info[0] in [6, 7]:
+elif sys.version_info[0] == 3 and sys.version_info[1] in [6, 7]:
+    import io
     import os
     import traceback
 
