@@ -88,7 +88,7 @@ def gains_table(
         CumBadRate=lambda x: x.BadCnt.cumsum() / x.TotalCnt.cumsum(),
         BadPercent=lambda x: x.BadCnt / x.BadCnt.sum(),
         CumBadPercent=lambda x: x.BadCnt.cumsum() / x.BadCnt.sum(),
-        GoodPercent=lambda x: x.GoodCnt.cumsum() / x.GoodCnt.sum(),
+        GoodPercent=lambda x: x.GoodCnt / x.GoodCnt.sum(),
         CumGoodPercent=lambda x: x.GoodCnt.cumsum() / x.GoodCnt.sum(),
         TotalPercent=lambda x: x.TotalCnt / x.TotalCnt.sum(),
         Lift=lambda x: (x.BadCnt / x.TotalCnt) /
