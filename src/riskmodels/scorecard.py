@@ -384,12 +384,16 @@ class WOEBinFactory(object):
             except KeyError:
                 raise KeyError(f'方法{bin_class}未注册！')
 
-        if issubclass(bin_class, WOEBin):
-            binner = bin_class(**kwargs)
-        elif isinstance(bin_class, WOEBin):
+        # if issubclass(bin_class, WOEBin):
+        #     binner = bin_class(**kwargs)
+        # elif isinstance(bin_class, WOEBin):
+        #     binner = bin_class
+        if isinstance(bin_class, WOEBin):
             binner = bin_class
+        elif isinstance(bin_class, type) and issubclass(bin_class, WOEBin):
+            binner = bin_class(**kwargs)
         else:
-            raise TypeError(f'类{bin_class}不是WOEBin子类')
+            raise TypeError(f'类{bin_class}不是WOEBin实例或子类')
 
         return binner
 
@@ -831,8 +835,7 @@ class QuantileInitBin(WOEBin):
         if is_numeric_dtype(dtm['value']):  # numeric variable
             xvalue = dtm['value'].astype(float)
             breaks = np.quantile(xvalue,
-                                 np.linspace(0, 1, self.n_bins + 1),
-                                 method='nearest')
+                                 np.linspace(0, 1, self.n_bins + 1))
             breaks = round_(np.unique(breaks), self.sig_figs)
             breaks[0] = -np.inf
             breaks[-1] = np.inf
@@ -845,9 +848,7 @@ class QuantileInitBin(WOEBin):
 class HistogramInitBin(WOEBin):
     """
     细分箱之等宽分箱。
-
     对类别型变量，直接返回所有类别值。
-
     对数值型变量，首先排除outlier样本，对剩余样本的range等分成`n_bins`等分。
 
     Args:
@@ -957,23 +958,23 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
     Args
         bin_num_limit: 分箱数上限，默认5
-        stop_limit: 独立性检验显著性，模型0.05
+        p: 独立性检验显著性，模型0.05
         count_distr_limit: 最小分箱样本占比，默认0.02
         ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
     """
 
     def __init__(self,
                  bin_num_limit=5,
-                 stop_limit=0.05,
+                 p=0.05,
                  count_distr_limit=0.02,
                  ensure_monotonic=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
-        self.stop_limit = stop_limit
+        self.p = p
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
-        self.chi2_limit = chi2.isf(stop_limit, df=1)
+        self.chi2_limit = chi2.isf(p, df=1)
 
     @staticmethod
     def chi2_stat(binning):
@@ -1079,20 +1080,20 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
 
     Args
         bin_num_limit: 分箱数上限，默认5
-        stop_limit: 增加切分点后IV相对增幅最小值，模型0.05
+        min_iv_inc: 增加切分点后IV相对增幅最小值，模型0.05
         count_distr_limit: 最小分箱样本占比，默认0.02
         ensure_monotonic: 是否要求严格单调，默认False
     """
 
     def __init__(self,
                  bin_num_limit=5,
-                 stop_limit=0.05,
+                 min_iv_inc=0.05,
                  count_distr_limit=0.02,
                  ensure_monotonic=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
-        self.stop_limit = stop_limit
+        self.min_iv_inc = min_iv_inc
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
 
