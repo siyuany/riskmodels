@@ -73,10 +73,11 @@ def gains_table(
 
     pred_df = pd.DataFrame({'score': y_score, 'y': y_true})
     if breaks is None:
-        _, breaks = pd.qcut(pred_df.score,
-                            np.linspace(0, 1, split + 1),
-                            retbins=True,
-                            duplicates='drop')
+        _, breaks = pd.qcut(
+            pred_df.score,
+            np.linspace(0, 1, split + 1),
+            retbins=True,
+            duplicates='drop')
     else:
         breaks = np.asarray(breaks)
 
@@ -146,35 +147,35 @@ def swap_analysis(df,
             (~df[compare_model].isna())].copy()
 
     if base_breaks is None:
-        df[base_model + '_seg'] = pd.qcut(df[base_model],
-                                          np.linspace(0, 1, segments + 1),
-                                          duplicates='drop')
+        df[base_model + '_seg'] = pd.qcut(
+            df[base_model], np.linspace(0, 1, segments + 1), duplicates='drop')
     else:
-        df[base_model + '_seg'] = pd.cut(df[base_model],
-                                         base_breaks,
-                                         right=right)
+        df[base_model + '_seg'] = pd.cut(
+            df[base_model], base_breaks, right=right)
 
     if compare_breaks is None:
-        df[compare_model + '_seg'] = pd.qcut(df[compare_model],
-                                             np.linspace(0, 1, segments + 1),
-                                             duplicates='drop')
+        df[compare_model + '_seg'] = pd.qcut(
+            df[compare_model],
+            np.linspace(0, 1, segments + 1),
+            duplicates='drop')
     else:
-        df[compare_model + '_seg'] = pd.cut(df[compare_model],
-                                            compare_breaks,
-                                            right=right)
-    total_cnt = pd.pivot_table(df,
-                               index=base_model + '_seg',
-                               columns=compare_model + '_seg',
-                               values=target_col,
-                               aggfunc='count')
+        df[compare_model + '_seg'] = pd.cut(
+            df[compare_model], compare_breaks, right=right)
+    total_cnt = pd.pivot_table(
+        df,
+        index=base_model + '_seg',
+        columns=compare_model + '_seg',
+        values=target_col,
+        aggfunc='count')
     if retval == 'totalcnt':
         return total_cnt
 
-    bad_cnt = pd.pivot_table(df,
-                             index=base_model + '_seg',
-                             columns=compare_model + '_seg',
-                             values=target_col,
-                             aggfunc='sum')
+    bad_cnt = pd.pivot_table(
+        df,
+        index=base_model + '_seg',
+        columns=compare_model + '_seg',
+        values=target_col,
+        aggfunc='sum')
     if retval == 'badcnt':
         return bad_cnt
 
@@ -192,21 +193,22 @@ def swap_analysis_simple(df,
                          reject_ratio=0.2):
     df = df[df[target_col].isin([0, 1]) & (~df[base_model].isna()) &
             (~df[compare_model].isna())].copy()
-    df[base_model + '_seg2'] = pd.qcut(df[base_model], [0, reject_ratio, 1.],
-                                       duplicates='drop')
-    df[compare_model + '_seg2'] = pd.qcut(df[compare_model],
-                                          [0, reject_ratio, 1.],
-                                          duplicates='drop')
-    total_cnt2 = pd.pivot_table(df,
-                                index=base_model + '_seg2',
-                                columns=compare_model + '_seg2',
-                                values=target_col,
-                                aggfunc='count')
-    bad_cnt2 = pd.pivot_table(df,
-                              index=base_model + '_seg2',
-                              columns=compare_model + '_seg2',
-                              values=target_col,
-                              aggfunc='sum')
+    df[base_model + '_seg2'] = pd.qcut(
+        df[base_model], [0, reject_ratio, 1.], duplicates='drop')
+    df[compare_model + '_seg2'] = pd.qcut(
+        df[compare_model], [0, reject_ratio, 1.], duplicates='drop')
+    total_cnt2 = pd.pivot_table(
+        df,
+        index=base_model + '_seg2',
+        columns=compare_model + '_seg2',
+        values=target_col,
+        aggfunc='count')
+    bad_cnt2 = pd.pivot_table(
+        df,
+        index=base_model + '_seg2',
+        columns=compare_model + '_seg2',
+        values=target_col,
+        aggfunc='sum')
     bad_rate2 = bad_cnt2 / total_cnt2
     swap_result = pd.concat([total_cnt2 / np.sum(total_cnt2.values), bad_rate2],
                             axis=1)
