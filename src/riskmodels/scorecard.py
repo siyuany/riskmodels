@@ -957,10 +957,10 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
     TODO: 增加分箱单调性约束
 
     Args
-        bin_num_limit: 分箱数上限，默认5
-        p: 独立性检验显著性，模型0.05
-        count_distr_limit: 最小分箱样本占比，默认0.02
-        ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
+        - bin_num_limit: 分箱数上限，默认5
+        - p: 独立性检验显著性，模型0.05
+        - count_distr_limit: 最小分箱样本占比，默认0.02
+        - ensure_monotonic: 是否要求单调，默认False（暂不支持该功能）
     """
 
     def __init__(self,

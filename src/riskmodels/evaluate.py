@@ -10,11 +10,30 @@ from riskmodels.utils import sample_stats
 
 
 def ks_score(y_true, y_pred) -> float:
-    """计算模型 KS 统计量"""
+    """
+    计算模型 KS 统计量
+
+    Args
+        - y_true: 真实Y标，0-1变量
+        - y_pred: 预测值
+
+    Returns
+        KS值
+    """
     return ks_2samp(y_pred[y_true == 1], y_pred[y_true == 0])[0]
 
 
 def model_perf(y_true, y_pred) -> Dict[str, float]:
+    """
+    评估模型表现，该函数封装了`sklearn.metrics.roc_auc_score` 和 `ks_score` 两个函数
+    Args:
+        y_true:
+        y_pred:
+
+    Returns:
+        `{'auc': auc score, 'ks': ks score}`
+
+    """
     labeled_selector = (np.isin(y_true, [0, 1])) & (~y_pred.isna())
     y_true_new = y_true[labeled_selector]
     y_pred_new = y_pred[labeled_selector]
@@ -132,39 +151,60 @@ def psi(base_distr, cmp_distr, epsilon=1e-3):
 
 
 def swap_analysis(df,
-                  base_model,
-                  compare_model,
+                  benchmark_model,
+                  challenger_model,
                   target_col,
-                  base_breaks=None,
-                  compare_breaks=None,
+                  benchmark_breaks=None,
+                  challenger_breaks=None,
                   segments=10,
                   right=False,
                   retval='badrate'):
+    """
+    双模型swap分析
+    Args:
+        df: 包含模型分及Y标的数据框
+        benchmark_model: 基准模型
+        challenger_model: 挑战者模型
+        target_col: Y标列名
+        benchmark_breaks: 基准模型切分点，默认为空
+        challenger_breaks: 挑战者模型切分点，默认为空
+        segments: 等分段数，默认为10段
+        right: right=True时为左开右闭区间，否则为右闭左开区间
+        retval: 返回统计量，
+            'badrate'返回坏率，
+            'badcnt'返回坏样本数，
+            'totalcnt'返回总样本数，
+            'all'返回'totalcnt', 'badcnt', 'badrate'构成的元组
+
+    Returns:
+        见 retval 参数说明
+
+    """
     assert retval in ['badrate', 'badcnt', 'totalcnt', 'all'], ValueError(
         'argument retval should be one of \'badrate\', \'badcnt\', '
         f'\'totalcnt\', and \'all\', get {retval}')
-    df = df[df[target_col].isin([0, 1]) & (~df[base_model].isna()) &
-            (~df[compare_model].isna())].copy()
+    df = df[df[target_col].isin([0, 1]) & (~df[benchmark_model].isna()) &
+            (~df[challenger_model].isna())].copy()
 
-    if base_breaks is None:
-        df[base_model + '_seg'] = pd.qcut(
-            df[base_model], np.linspace(0, 1, segments + 1), duplicates='drop')
+    if benchmark_breaks is None:
+        df[benchmark_model + '_seg'] = pd.qcut(
+            df[benchmark_model], np.linspace(0, 1, segments + 1), duplicates='drop')
     else:
-        df[base_model + '_seg'] = pd.cut(
-            df[base_model], base_breaks, right=right)
+        df[benchmark_model + '_seg'] = pd.cut(
+            df[benchmark_model], benchmark_breaks, right=right)
 
-    if compare_breaks is None:
-        df[compare_model + '_seg'] = pd.qcut(
-            df[compare_model],
+    if challenger_breaks is None:
+        df[challenger_model + '_seg'] = pd.qcut(
+            df[challenger_model],
             np.linspace(0, 1, segments + 1),
             duplicates='drop')
     else:
-        df[compare_model + '_seg'] = pd.cut(
-            df[compare_model], compare_breaks, right=right)
+        df[challenger_model + '_seg'] = pd.cut(
+            df[challenger_model], challenger_breaks, right=right)
     total_cnt = pd.pivot_table(
         df,
-        index=base_model + '_seg',
-        columns=compare_model + '_seg',
+        index=benchmark_model + '_seg',
+        columns=challenger_model + '_seg',
         values=target_col,
         aggfunc='count')
     if retval == 'totalcnt':
@@ -172,8 +212,8 @@ def swap_analysis(df,
 
     bad_cnt = pd.pivot_table(
         df,
-        index=base_model + '_seg',
-        columns=compare_model + '_seg',
+        index=benchmark_model + '_seg',
+        columns=challenger_model + '_seg',
         values=target_col,
         aggfunc='sum')
     if retval == 'badcnt':
@@ -187,26 +227,39 @@ def swap_analysis(df,
 
 
 def swap_analysis_simple(df,
-                         base_model,
-                         compare_model,
+                         benchmark_model,
+                         challenger_model,
                          target_col,
                          reject_ratio=0.2):
-    df = df[df[target_col].isin([0, 1]) & (~df[base_model].isna()) &
-            (~df[compare_model].isna())].copy()
-    df[base_model + '_seg2'] = pd.qcut(
-        df[base_model], [0, reject_ratio, 1.], duplicates='drop')
-    df[compare_model + '_seg2'] = pd.qcut(
-        df[compare_model], [0, reject_ratio, 1.], duplicates='drop')
+    """
+    简易双模型swap分析，该函数将两个模型等量的尾部客户标记为拒绝样本，尾部客户占比由`reject_ratio`参数指定，并
+    计算换入换出的样本坏率。**注意：该函数要求模型分越高，风险越低**
+    Args:
+        df: 包含模型分及Y标的数据框
+        benchmark_model: 基准模型
+        challenger_model: 挑战者模型
+        target_col: Y标列名
+        reject_ratio: 待拒绝尾部客户占比
+
+    Returns:
+        `pd.DataFrame`
+    """
+    df = df[df[target_col].isin([0, 1]) & (~df[benchmark_model].isna()) &
+            (~df[challenger_model].isna())].copy()
+    df[benchmark_model + '_seg2'] = pd.qcut(
+        df[benchmark_model], [0, reject_ratio, 1.], duplicates='drop')
+    df[challenger_model + '_seg2'] = pd.qcut(
+        df[challenger_model], [0, reject_ratio, 1.], duplicates='drop')
     total_cnt2 = pd.pivot_table(
         df,
-        index=base_model + '_seg2',
-        columns=compare_model + '_seg2',
+        index=benchmark_model + '_seg2',
+        columns=challenger_model + '_seg2',
         values=target_col,
         aggfunc='count')
     bad_cnt2 = pd.pivot_table(
         df,
-        index=base_model + '_seg2',
-        columns=compare_model + '_seg2',
+        index=benchmark_model + '_seg2',
+        columns=challenger_model + '_seg2',
         values=target_col,
         aggfunc='sum')
     bad_rate2 = bad_cnt2 / total_cnt2
