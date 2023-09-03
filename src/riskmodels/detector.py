@@ -128,7 +128,8 @@ def detect(dataframe, n_cores: Union[NoneType, int] = None):
     """
 
     rows = []
-    n_cores = int(n_cores) if n_cores >= 1 else None
+    # n_cores = int(n_cores) if n_cores >= 1 else None
+    n_cores = None if n_cores is None or n_cores < 1 else int(n_cores)
     n_cols = dataframe.shape[1]
     if n_cols < 10 or n_cores == 1:
         for name, series in dataframe.items():
