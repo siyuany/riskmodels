@@ -34,7 +34,7 @@ def getTopValues(series, top=5, reverse=False):
     return pd.Series(values, index=indexs)
 
 
-def getDescribe(series, percentiles=[.25, .5, .75]):
+def getDescribe(series, percentiles=None):
     """Get describe of series
     Args:
         series (Series): data series
@@ -42,6 +42,8 @@ def getDescribe(series, percentiles=[.25, .5, .75]):
     Returns:
         Series: the describe of data include mean, std, min, max and percentiles
     """
+    if percentiles is None:
+        percentiles = [.25, .5, .75]
     d = series.describe(percentiles)
     return d.drop('count')
 
