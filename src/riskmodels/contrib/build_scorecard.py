@@ -323,8 +323,8 @@ def build_scorecard(sample_df,
         for model in compare_model_fields:
             print(f'新模型 vs {model.upper()}\n')
             swap_tbl = swap_analysis_simple(sample_df,
-                                            base_model='score',
-                                            compare_model=model,
+                                            benchmark_model='score',
+                                            challenger_model=model,
                                             target_col=target,
                                             reject_ratio=0.2)
             swap_tbl.to_excel(excel_file, sheet_name='Swap分析', startrow=row_cnt)
