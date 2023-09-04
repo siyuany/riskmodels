@@ -407,7 +407,7 @@ class WOEBinFactory(object):
         >>> woe_bin = WOEBinFactory.build (['quantile', 'tree'],
         ...                               initial_bins=20,
         ...                               bin_num_limit=8,
-        ...                               stop_limit=0.1,
+        ...                               min_iv_inc=0.1,
         ...                               count_distr_limit=0.05)
         >>> woe_bin
         <riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
@@ -1145,7 +1145,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
                         and monotonic_constrain):
                     curr_iv = new_binning['total_iv'][0]
                     if ((curr_iv - last_iv + 1e-8) /
-                        (last_iv + 1e-8)) > self.stop_limit:
+                        (last_iv + 1e-8)) > self.min_iv_inc:
                         cut_idx_iv[idx] = curr_iv
 
             if len(cut_idx_iv) > 0:
