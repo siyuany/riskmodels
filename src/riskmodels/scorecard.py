@@ -21,11 +21,12 @@ import itertools
 import multiprocessing as mp
 import re
 import time
+from typing import Union, List
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
+from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
@@ -60,7 +61,9 @@ def check_datetime_cols(dat):
     return dat
 
 
-def check_cat_var_uniques(dat, unique_limits=50, var_skip=None):
+def check_cat_var_uniques(dat: pd.DataFrame,
+                          unique_limits: int = 50,
+                          var_skip: List = None):
     # character columns with too many unique values
     char_cols = [i for i in list(dat) if not is_numeric_dtype(dat[i])]
     if var_skip is not None:
@@ -111,65 +114,39 @@ def rep_blank_na(dat):
     return dat
 
 
-def check_y(dat, y, positive):
-    positive = str(positive)
-    if not isinstance(dat, pd.DataFrame):
-        raise Exception("Incorrect inputs; dat should be a DataFrame.")
-    elif dat.shape[1] <= 1:
-        raise Exception(
-            "Incorrect inputs; dat should be a DataFrame with at least "
-            "two columns.")
+def check_y(dat: pd.DataFrame, y: str, *, positive: Union[int, float] = 1):
+    """
+    对dat中y标进行如下检查：(1)dat[y]是否为数值型；(2)dat[y]空值检查；(3)dat[y]是否为(0,1)二值型变量.
+    完成检查后，将dat[y]等于positive的记录记为1（正样本），否则记为0.
+    """
+    try:
+        if not is_numeric_dtype(dat[y]):
+            logging.error(f'The target column {y} is not numeric type.')
+            raise TypeError(f'The target column {y} is not numeric type.')
 
-    y = str_to_list(y)
-    if len(y) != 1:
-        raise Exception("Incorrect inputs; the length of y should be one")
+        if dat[y].isna().any():
+            logging.warn(f'There are NaNs in {y} column. '
+                         f'The corresponding records are removed.')
+            dat = dat.dropna(subset=[y])
 
-    y = y[0]
-    # y not in dat.columns
-    if y not in dat.columns:
-        raise Exception(
+        if dat[y].nunique() != 2:
+            logging.error(f'The target column {y} is not binary.')
+            raise ValueError(f'The target column {y} is not binary.')
+
+        if np.all(dat[y] != positive):
+            logging.error(
+                f'positive value ({positive}) not in the target column.')
+            raise ValueError(
+                f'positive value ({positive}) not in the target column.')
+
+        dat[y] = np.where(dat[y] == positive, 1, 0)
+
+    except KeyError as err:
+        logging.error(
             "Incorrect inputs; there is no \'{}\' column in dat.".format(y))
-
-    # remove na in y
-    if dat[y].isnull().any():
-        logging.warn(
-            "There are NaNs in \'{}\' column. The rows with NaN in \'{}\' were"
-            " removed from dat.".format(y, y))
-        dat = dat.dropna(subset=[y])
-
-    # numeric y to int
-    if is_numeric_dtype(dat[y]):
-        dat.loc[:, y] = dat[y].apply(lambda x: x if pd.isnull(x) else int(x))
-    # length of unique values in y
-    unique_y = np.unique(dat[y].values)
-    if len(unique_y) == 2:
-        # if [v not in [0,1] for v in unique_y] == [True, True]:
-        if True in [bool(re.search(positive, str(v))) for v in unique_y]:
-            y1 = dat[y]
-            y2 = dat[y].apply(lambda x: 1
-                              if str(x) in re.split(r'\|', positive) else 0)
-            if np.any(y1 != y2):
-                dat.loc[:, y] = y2
-                logging.warn(
-                    "The positive value in \"{}\" was replaced by 1 and "
-                    "negative value by 0.".format(y))
-        else:
-            raise Exception("Incorrect inputs; the positive value in \"{}\" is "
-                            "not specified".format(y))
-    else:
-        raise Exception("Incorrect inputs; the length of unique values in y "
-                        "column \'{}\' != 2.".format(y))
+        raise KeyError(y) from err
 
     return dat
-
-
-def check_print_step(print_step):
-    if not isinstance(print_step, (int, float)) or print_step < 0:
-        logging.warn(
-            "Incorrect inputs; print_step should be a non-negative integer. "
-            "It was set to 1.")
-        print_step = 1
-    return print_step
 
 
 def x_variable(dat, y, x, var_skip=None):
@@ -641,7 +618,7 @@ class WOEBin(object):
             return np.sum(x == 1)
 
         bin_chr = bin_chr.rename(index='bin_chr')
-        binning = dtm.groupby(['variable', bin_chr])['y'].agg(good=_n0, bad=_n1)
+        binning = dtm.groupby(['variable', bin_chr], observed=False)['y'].agg(good=_n0, bad=_n1)
         binning = binning.reset_index()
 
         return binning
@@ -1143,7 +1120,12 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
 
                 if (np.all(new_binning['count_distr'] > self.count_distr_limit)
                         and monotonic_constrain):
-                    curr_iv = new_binning['total_iv'][0]
+                    # (pandas==2.1.1)
+                    # FutureWarning: Series.__getitem__ treating keys as positions is deprecated. In a future version,
+                    # integer keys will always be treated as labels (consistent with DataFrame behavior). To access a
+                    # value by position, use `ser.iloc[pos]`
+                    # curr_iv = new_binning['total_iv'][0]
+                    curr_iv = new_binning['total_iv'].iloc[0]
                     if ((curr_iv - last_iv + 1e-8) /
                         (last_iv + 1e-8)) > self.min_iv_inc:
                         cut_idx_iv[idx] = curr_iv
@@ -1350,10 +1332,10 @@ def woebin_plot(bins, x=None, title=None, show_iv=True):
         bins = pd.concat(bins, ignore_index=True)
 
     # good bad distr
-    def gb_distr(binx):
-        binx['good_distr'] = binx['good'] / sum(binx['count'])
-        binx['bad_distr'] = binx['bad'] / sum(binx['count'])
-        return binx
+    def gb_distr(bin_x):
+        bin_x['good_distr'] = bin_x['good'] / sum(bin_x['count'])
+        bin_x['bad_distr'] = bin_x['bad'] / sum(bin_x['count'])
+        return bin_x
 
     bins = bins.groupby('variable').apply(gb_distr)
     # x variable names
