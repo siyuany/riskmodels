@@ -119,6 +119,7 @@ def check_y(dat: pd.DataFrame, y: str, *, positive: Union[int, float] = 1):
     对dat中y标进行如下检查：(1)dat[y]是否为数值型；(2)dat[y]空值检查；(3)dat[y]是否为(0,1)二值型变量.
     完成检查后，将dat[y]等于positive的记录记为1（正样本），否则记为0.
     """
+    dat = dat.copy()
     try:
         if not is_numeric_dtype(dat[y]):
             logging.error(f'The target column {y} is not numeric type.')
@@ -215,7 +216,8 @@ def woebin(dt,
            var_skip=None,
            breaks_list=None,
            special_values=None,
-           positive="bad|1",
+           # positive="bad|1",
+           positive=1,
            no_cores=None,
            methods=None,
            ignore_const_cols=True,
@@ -235,7 +237,7 @@ def woebin(dt,
     if x is not None:
         dt = dt[y + x]
     # check y
-    dt = check_y(dt, y, positive)
+    dt = check_y(dt, y[0], positive=positive)
     # remove constant columns
     if ignore_const_cols:
         dt = check_const_cols(dt)
