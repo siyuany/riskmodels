@@ -39,7 +39,7 @@ def risk_trends_consistency(df, sc_bins, target):
         bin_merge = pd.merge(old_bin[['variable', 'bin', 'badprob']],
                              new_bin[['variable', 'bin', 'badprob']],
                              on=['variable', 'bin'],
-                             suffixes=['_o', '_n'],
+                             suffixes=('_o', '_n'),
                              how='left')
         c = bin_merge[['badprob_n',
                        'badprob_o']].corr(method='spearman').iloc[0, 0]
