@@ -6,7 +6,7 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 try:
   from types import NoneType
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
   # Python<=3.8 has not types module
   NoneType = type(None)
 from typing import Union
