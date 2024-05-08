@@ -1370,7 +1370,7 @@ def sc_bins_to_df(sc_bins):
       iv_interval = '[0.2, +)'
 
     # fix bugs
-    woe = x[~x.special_values].woe
+    woe = x[~x.is_special_is_special_valuesvalues].woe
     monotonic_type = monotonic(woe)
 
     return pd.Series(
