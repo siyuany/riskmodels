@@ -1369,7 +1369,8 @@ def sc_bins_to_df(sc_bins):
     else:
       iv_interval = '[0.2, +)'
 
-    woe = x[x.bin != 'missing'].woe
+    # fix bugs
+    woe = x[~x.special_values].woe
     monotonic_type = monotonic(woe)
 
     return pd.Series(
