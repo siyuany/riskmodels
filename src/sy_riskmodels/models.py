@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import check_cv
 
-import riskmodels.logging as logging
+import sy_riskmodels.logging as logging
 
 
 class LogisticRegressionCV(object):
@@ -16,29 +16,39 @@ class LogisticRegressionCV(object):
         self._logistic_kwargs = logistic_kwargs
 
     def fit_and_eval(self, X, y):
-        y_predicted = None
-        y_actual = None
+      train_predicted = None
+      train_actual = None
+      valid_predicted = None
+      valid_actual = None
 
-        cv_wrapper = check_cv(self._cv, y=y, classifier=True)
+      cv_wrapper = check_cv(self._cv, y=y, classifier=True)
 
-        for train_index, test_index in cv_wrapper.split(X, y):
-            X_train, X_test = X[train_index], X[test_index]
-            y_train, y_test = y[train_index], y[test_index]
+      for train_index, test_index in cv_wrapper.split(X, y):
+        X_train, X_test = X[train_index], X[test_index]
+        y_train, y_test = y[train_index], y[test_index]
 
-            logistic_regressor = LogisticRegression(**self._logistic_kwargs)
-            logistic_regressor.fit(X_train, y_train)
+        logistic_regressor = LogisticRegression(**self._logistic_kwargs)
+        logistic_regressor.fit(X_train, y_train)
 
-            y_pred = logistic_regressor.predict_proba(X_test)[:, 1]
+        train_pred = logistic_regressor.predict_proba(X_test)[:, 1]
+        if train_predicted is None:
+          train_predicted = train_pred
+          train_actual = y_test
+        else:
+          train_predicted = np.concatenate([train_predicted, train_pred])
+          train_actual = np.concatenate([train_actual, y_train])
 
-            if y_predicted is None:
-                y_predicted = y_pred
-                y_actual = y_test
-            else:
-                y_predicted = np.concatenate([y_predicted, y_pred])
-                y_actual = np.concatenate([y_actual, y_test])
+        valid_pred = logistic_regressor.predict_proba(X_test)[:, 1]
+        if valid_predicted is None:
+          valid_predicted = valid_pred
+          valid_actual = y_test
+        else:
+          valid_predicted = np.concatenate([valid_predicted, valid_pred])
+          valid_actual = np.concatenate([valid_actual, y_test])
 
-        auc = roc_auc_score(y_actual, y_predicted)
-        return auc
+      train_auc = roc_auc_score(train_actual, train_predicted)
+      valid_auc = roc_auc_score(valid_actual, valid_predicted)
+      return min(train_auc, valid_auc) - abs(train_auc - valid_auc)
 
 
 def group_split_cv(group_arr):

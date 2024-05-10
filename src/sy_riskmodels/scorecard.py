@@ -30,9 +30,9 @@ from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
-import riskmodels.logging as logging
-from riskmodels.evaluate import psi
-from riskmodels.utils import monotonic, round_, str_to_list
+import sy_riskmodels.logging as logging
+from sy_riskmodels.evaluate import psi
+from sy_riskmodels.utils import monotonic, round_, str_to_list
 
 
 def check_const_cols(dat):
@@ -389,7 +389,7 @@ class WOEBinFactory(object):
         ...                               min_iv_inc=0.1,
         ...                               count_distr_limit=0.05)
         >>> woe_bin
-        <riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
+        <sy_riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
 
         Args:
             bin_classes: WOEBin子类或子类注册名列表
