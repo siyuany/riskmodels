@@ -7,13 +7,13 @@ import statsmodels.api as sm
 from pandas.io.excel import ExcelWriter
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-from riskmodels.contrib.var_select import risk_trends_consistency
-from riskmodels.evaluate import (model_eval, gains_table, psi,
-                                 swap_analysis_simple)
-from riskmodels.models import group_split_cv, stepwise_lr
-from riskmodels.scorecard import (make_scorecard, sc_bins_to_df, woebin,
-                                  woebin_plot, woebin_ply, woebin_psi)
-from riskmodels.utils import str_to_list, sample_stats
+from sy_riskmodels.contrib.var_select import risk_trends_consistency
+from sy_riskmodels.evaluate import (model_eval, gains_table, psi,
+                                    swap_analysis_simple)
+from sy_riskmodels.models import group_split_cv, stepwise_lr
+from sy_riskmodels.scorecard import (make_scorecard, sc_bins_to_df, woebin,
+                                     woebin_plot, woebin_ply, woebin_psi)
+from sy_riskmodels.utils import str_to_list, sample_stats
 
 
 def build_scorecard(sample_df,
