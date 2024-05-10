@@ -7,7 +7,7 @@ from addpath import addpath
 
 try:
     addpath()
-    from riskmodels.detector import detect
+    from sy_riskmodels.detector import detect
 except ModuleNotFoundError as e:
     raise e
 
