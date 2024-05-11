@@ -1,12 +1,13 @@
-__version__ = '0.0.7'
+# -*- encoding: utf-8 -*-
+__version__ = '0.0.8'
 
-import riskmodels.contrib as contrib
-import riskmodels.detector as detector
-import riskmodels.evaluate as evaluate
-import riskmodels.logging as logging
-import riskmodels.models as models
-import riskmodels.scorecard as scorecard
-import riskmodels.utils as utils
+import sy_riskmodels.contrib as contrib
+import sy_riskmodels.detector as detector
+import sy_riskmodels.evaluate as evaluate
+import sy_riskmodels.logging as logging
+import sy_riskmodels.models as models
+import sy_riskmodels.scorecard as scorecard
+import sy_riskmodels.utils as utils
 from .detector import detect
 from .evaluate import gains_table
 from .evaluate import ks_score
