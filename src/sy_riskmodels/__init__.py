@@ -1,4 +1,5 @@
-__version__ = '0.0.6'
+# -*- encoding: utf-8 -*-
+__version__ = '0.0.8'
 
 import sy_riskmodels.contrib as contrib
 import sy_riskmodels.detector as detector
