@@ -119,8 +119,9 @@ def check_y(dat: pd.DataFrame, y: str, *, positive: Union[int, float] = 1):
   dat = dat.copy()
   try:
     if not is_numeric_dtype(dat[y]):
-      logging.error(f'The target column {y} is not numeric type.')
-      raise TypeError(f'The target column {y} is not numeric type.')
+      msg = f'The target column {y} is not numeric type, dtype={dat[y].dtypes}'
+      logging.error(msg)
+      raise TypeError(msg)
 
     if dat[y].isna().any():
       logging.warn(f'There are NaNs in {y} column. '
@@ -535,25 +536,25 @@ class WOEBin(object):
   @classmethod
   def dtm_binning_sv(cls, dtm, spl_val):
     """
-        将原数据集拆分为特殊值数据集、非特殊值数据集，特殊值列表有spl_val参数给出。
+    将原数据集拆分为特殊值数据集、非特殊值数据集，特殊值列表有spl_val参数给出。
 
-        Specifications:
-        1、当dtm['value']为数值类型时，每个特殊数值会单独成为一箱。例如：
-        >>> vec = ['missing', '-9999%,%-999']
-        如果dtm['value']为数值类型，在此函数中，-9999和-999会分开成为两箱；如果dtm['value']为
-        非数值类型，则-9999和-999会合并到同一分箱。
-        2、如果spl_val为None，或者dtm['value']中不存在特殊值，则返回的binning_sv为None。
-        3、如果dtm['value']全为spl_val中的特殊值，则返回的dtm为None。
-        4、如果入参breaks中包含'missing'，则spl_val中将不包含'missing'。
+    Specifications:
+    1、当dtm['value']为数值类型时，每个特殊数值会单独成为一箱。例如：
+    >>> vec = ['missing', '-9999%,%-999']
+    如果dtm['value']为数值类型，在此函数中，-9999和-999会分开成为两箱；如果dtm['value']为
+    非数值类型，则-9999和-999会合并到同一分箱。
+    2、如果spl_val为None，或者dtm['value']中不存在特殊值，则返回的binning_sv为None。
+    3、如果dtm['value']全为spl_val中的特殊值，则返回的dtm为None。
+    4、如果入参breaks中包含'missing'，则spl_val中将不包含'missing'。
 
-        Args:
-            dtm: 应包含['y', 'variable', 'value']三列的DataFrame，详见WEOBin类文档
-            spl_val: 特殊值列表
+    Args:
+        dtm: 应包含['y', 'variable', 'value']三列的DataFrame，详见WEOBin类文档
+        spl_val: 特殊值列表
 
-        Returns:
-            {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': dtm中除去特殊值外的部分}
+    Returns:
+        {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': dtm中除去特殊值外的部分}
 
-        """
+    """
     split_dtm = cls.split_special_values(dtm, spl_val)
 
     dtm_sv = split_dtm['dtm_sv']
@@ -820,6 +821,7 @@ class QuantileInitBin(InitBin):
       breaks = round_(np.unique(breaks), self.sig_figs)
       breaks[0] = -np.inf
       breaks[-1] = np.inf
+      breaks = np.unique(breaks)
       breaks = self.check_empty_bins(dtm, breaks)
     else:
       breaks = np.unique(dtm['value'])
