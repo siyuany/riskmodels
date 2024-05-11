@@ -9,9 +9,9 @@ from addpath import addpath
 
 try:
     addpath()
-    from riskmodels.scorecard import WOEBinFactory
-    from riskmodels.scorecard import WOEBin
-    from riskmodels.contrib.build_scorecard import build_scorecard
+    from sy_riskmodels.scorecard import WOEBinFactory
+    from sy_riskmodels.scorecard import WOEBin
+    from sy_riskmodels.contrib.build_scorecard import build_scorecard
 except ModuleNotFoundError as e:
     raise e
 

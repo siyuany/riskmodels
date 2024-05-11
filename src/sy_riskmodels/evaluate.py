@@ -6,7 +6,7 @@ import pandas as pd
 from scipy.stats import ks_2samp
 from sklearn.metrics import roc_auc_score
 
-from riskmodels.utils import sample_stats
+from sy_riskmodels.utils import sample_stats
 
 
 def ks_score(y_true, y_pred) -> float:

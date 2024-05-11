@@ -30,9 +30,9 @@ from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 
-import riskmodels.logging as logging
-from riskmodels.evaluate import psi
-from riskmodels.utils import monotonic, round_, str_to_list
+import sy_riskmodels.logging as logging
+from sy_riskmodels.evaluate import psi
+from sy_riskmodels.utils import monotonic, round_, str_to_list
 
 
 def check_const_cols(dat):
@@ -41,20 +41,20 @@ def check_const_cols(dat):
   if len(unique1_cols) > 0:
     logging.warn("There are {} columns have only one unique values, which are "
                  "removed from input dataset. \n (ColumnNames: {})".format(
-                     len(unique1_cols), ', '.join(unique1_cols)))
+      len(unique1_cols), ', '.join(unique1_cols)))
     dat = dat.drop(unique1_cols, axis=1)
   return dat
 
 
 def check_datetime_cols(dat):
   datetime_cols = dat.apply(
-      pd.to_numeric, errors='ignore').select_dtypes(object).apply(
-          pd.to_datetime,
-          errors='ignore').select_dtypes('datetime64').columns.tolist()
+    pd.to_numeric, errors='ignore').select_dtypes(object).apply(
+    pd.to_datetime,
+    errors='ignore').select_dtypes('datetime64').columns.tolist()
   if len(datetime_cols) > 0:
     logging.warn("There are {} date/time type columns are removed from input "
                  "dataset. \n (ColumnNames: {})".format(
-                     len(datetime_cols), ', '.join(datetime_cols)))
+      len(datetime_cols), ', '.join(datetime_cols)))
     dat = dat.drop(datetime_cols, axis=1)
   return dat
 
@@ -68,7 +68,7 @@ def check_cat_var_uniques(dat: pd.DataFrame,
     var_skip = str_to_list(var_skip)
     char_cols = list(set(char_cols) - set(str_to_list(var_skip)))
   cat_var_too_many_unique = [
-      i for i in char_cols if len(dat[i].unique()) >= unique_limits
+    i for i in char_cols if len(dat[i].unique()) >= unique_limits
   ]
   if len(cat_var_too_many_unique) > 0:
     print(f'>>> There are {cat_var_too_many_unique} categorical variables '
@@ -94,17 +94,17 @@ def rep_blank_na(dat):
   if dat.index.duplicated().any():
     dat = dat.reset_index(drop=True)
     logging.warn(
-        'There are duplicated index in dataset. The index has been reset.')
+      'There are duplicated index in dataset. The index has been reset.')
 
   blank_cols = [
-      i for i in list(dat) if dat[i].astype(str).str.findall(r'^\s*$').apply(
-          lambda x: 0 if len(x) == 0 else 1).sum() > 0
+    i for i in list(dat) if dat[i].astype(str).str.findall(r'^\s*$').apply(
+      lambda x: 0 if len(x) == 0 else 1).sum() > 0
   ]
   if len(blank_cols) > 0:
     logging.warn(
-        'There are blank strings in {} columns, which are replaced with '
-        'NaN. \n (ColumnNames: {})'.format(
-            len(blank_cols), ', '.join(blank_cols)))
+      'There are blank strings in {} columns, which are replaced with '
+      'NaN. \n (ColumnNames: {})'.format(
+        len(blank_cols), ', '.join(blank_cols)))
 
     dat.replace(r'^\s*$', np.nan, regex=True)
 
@@ -140,7 +140,7 @@ def check_y(dat: pd.DataFrame, y: str, *, positive: Union[int, float] = 1):
 
   except KeyError as err:
     logging.error(
-        "Incorrect inputs; there is no \'{}\' column in dat.".format(y))
+      "Incorrect inputs; there is no \'{}\' column in dat.".format(y))
     raise KeyError(y) from err
 
   return dat
@@ -164,7 +164,7 @@ def x_variable(dat, y, x, var_skip=None):
       if len(x_not_in_x_all) > 0:
         logging.warn("Incorrect inputs; there are {} x variables are not exist "
                      "in input data, which are removed from x. \n({})".format(
-                         len(x_not_in_x_all), ', '.join(x_not_in_x_all)))
+          len(x_not_in_x_all), ', '.join(x_not_in_x_all)))
         x = set(x).intersection(x_all)
 
   return list(x)
@@ -190,16 +190,16 @@ def check_special_values(special_values, xs) -> dict:
     #     special_values = eval(special_values)
     if isinstance(special_values, list):
       logging.warn(
-          "The special_values should be a dict. Make sure special values "
-          "are exactly the same in all variables if special_values is "
-          "a list.")
+        "The special_values should be a dict. Make sure special values "
+        "are exactly the same in all variables if special_values is "
+        "a list.")
       sv_dict = {}
       for i in xs:
         sv_dict[i] = special_values
       special_values = sv_dict
     elif not isinstance(special_values, dict):
       raise Exception(
-          "Incorrect inputs; special_values should be a list or dict.")
+        "Incorrect inputs; special_values should be a list or dict.")
   else:
     special_values = {}
   return special_values
@@ -260,7 +260,7 @@ def woebin(
   if (no_cores is None) or (no_cores < 1):
     all_cores = mp.cpu_count() - 1
     no_cores = int(
-        np.ceil(xs_len / 5 if xs_len / 5 < all_cores else all_cores * 0.9))
+      np.ceil(xs_len / 5 if xs_len / 5 < all_cores else all_cores * 0.9))
 
   # y list to str
   y = y[0]
@@ -268,17 +268,17 @@ def woebin(
   woe_bin = WOEBinFactory.build(methods, **kwargs)
 
   tasks = [
-      (
-          # dtm definition
-          pd.DataFrame({
-              'y': dt[y],
-              'variable': x_i,
-              'value': dt[x_i]
-          }),
-          # breaks_list
-          breaks_list.get(x_i),
-          # special_values
-          special_values.get(x_i)) for x_i in xs
+    (
+      # dtm definition
+      pd.DataFrame({
+        'y': dt[y],
+        'variable': x_i,
+        'value': dt[x_i]
+      }),
+      # breaks_list
+      breaks_list.get(x_i),
+      # special_values
+      special_values.get(x_i)) for x_i in xs
   ]
 
   logging.info(f'开始分箱，特征数 {len(tasks)}，样本数 {len(dt)}')
@@ -293,8 +293,8 @@ def woebin(
   # running time
   running_time = time.time() - start_time
   logging.info('分箱完成：Binning on {} rows and {} columns in {}'.format(
-      dt.shape[0], len(xs), time.strftime("%H:%M:%S",
-                                          time.gmtime(running_time))))
+    dt.shape[0], len(xs), time.strftime("%H:%M:%S",
+                                        time.gmtime(running_time))))
 
   return bins
 
@@ -385,7 +385,7 @@ class WOEBinFactory(object):
         ...                               min_iv_inc=0.1,
         ...                               count_distr_limit=0.05)
         >>> woe_bin
-        <riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
+        <sy_riskmodels.scorecard.ComposedWOEBin object at 0x1009776a0>
 
         Args:
             bin_classes: WOEBin子类或子类注册名列表
@@ -481,9 +481,9 @@ class WOEBin(object):
     vec = [str(i) for i in vec]
     a = pd.DataFrame({'bin_chr': vec}).assign(rowid=lambda x: x.index)
     b = pd.DataFrame([i.split('%,%') for i in vec], index=vec) \
-        .stack().replace('missing', np.nan) \
-        .reset_index(name='value') \
-        .rename(columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
+      .stack().replace('missing', np.nan) \
+      .reset_index(name='value') \
+      .rename(columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
 
     df = pd.merge(a, b, on='bin_chr')
     return df
@@ -499,18 +499,18 @@ class WOEBin(object):
         sv_df['value'] = sv_df['value'].astype(dtm['value'].dtypes)
         # TODO: 此处是否必要？？
         sv_df['bin_chr'] = np.where(
-            np.isnan(sv_df['value']), sv_df['bin_chr'],
-            sv_df['value'].astype(str))
+          np.isnan(sv_df['value']), sv_df['bin_chr'],
+          sv_df['value'].astype(str))
       # dtm_sv & dtm
       dtm_merge = pd.merge(
-          dtm.fillna("missing"),
-          sv_df[['value', 'rowid']].fillna("missing"),
-          how='left',
-          on='value')
+        dtm.fillna("missing"),
+        sv_df[['value', 'rowid']].fillna("missing"),
+        how='left',
+        on='value')
       dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][
-          dtm.columns.tolist()].reset_index(drop=True)
+        dtm.columns.tolist()].reset_index(drop=True)
       dtm_ns = dtm_merge[dtm_merge['rowid'].isna()][
-          dtm.columns.tolist()].reset_index(drop=True)
+        dtm.columns.tolist()].reset_index(drop=True)
       if len(dtm_ns) == 0:
         dtm_ns = None
       else:
@@ -520,7 +520,7 @@ class WOEBin(object):
         dtm_sv = None
       else:
         dtm_sv = pd.merge(
-            dtm_sv.fillna('missing'), sv_df.fillna('missing'), on='value')
+          dtm_sv.fillna('missing'), sv_df.fillna('missing'), on='value')
     else:
       dtm_sv = None
       dtm_ns = dtm.copy()
@@ -536,25 +536,25 @@ class WOEBin(object):
   @classmethod
   def dtm_binning_sv(cls, dtm, spl_val):
     """
-        将原数据集拆分为特殊值数据集、非特殊值数据集，特殊值列表有spl_val参数给出。
+    将原数据集拆分为特殊值数据集、非特殊值数据集，特殊值列表有spl_val参数给出。
 
-        Specifications:
-        1、当dtm['value']为数值类型时，每个特殊数值会单独成为一箱。例如：
-        >>> vec = ['missing', '-9999%,%-999']
-        如果dtm['value']为数值类型，在此函数中，-9999和-999会分开成为两箱；如果dtm['value']为
-        非数值类型，则-9999和-999会合并到同一分箱。
-        2、如果spl_val为None，或者dtm['value']中不存在特殊值，则返回的binning_sv为None。
-        3、如果dtm['value']全为spl_val中的特殊值，则返回的dtm为None。
-        4、如果入参breaks中包含'missing'，则spl_val中将不包含'missing'。
+    Specifications:
+    1、当dtm['value']为数值类型时，每个特殊数值会单独成为一箱。例如：
+    >>> vec = ['missing', '-9999%,%-999']
+    如果dtm['value']为数值类型，在此函数中，-9999和-999会分开成为两箱；如果dtm['value']为
+    非数值类型，则-9999和-999会合并到同一分箱。
+    2、如果spl_val为None，或者dtm['value']中不存在特殊值，则返回的binning_sv为None。
+    3、如果dtm['value']全为spl_val中的特殊值，则返回的dtm为None。
+    4、如果入参breaks中包含'missing'，则spl_val中将不包含'missing'。
 
-        Args:
-            dtm: 应包含['y', 'variable', 'value']三列的DataFrame，详见WEOBin类文档
-            spl_val: 特殊值列表
+    Args:
+        dtm: 应包含['y', 'variable', 'value']三列的DataFrame，详见WEOBin类文档
+        spl_val: 特殊值列表
 
-        Returns:
-            {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': dtm中除去特殊值外的部分}
+    Returns:
+        {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': dtm中除去特殊值外的部分}
 
-        """
+    """
     split_dtm = cls.split_special_values(dtm, spl_val)
 
     dtm_sv = split_dtm['dtm_sv']
@@ -613,7 +613,7 @@ class WOEBin(object):
 
     bin_chr = bin_chr.rename(index='bin_chr')
     binning = dtm.groupby(['variable', bin_chr], observed=False)['y'].agg(
-        good=_n0, bad=_n1)
+      good=_n0, bad=_n1)
     binning = binning.reset_index()
 
     return binning
@@ -648,15 +648,15 @@ class WOEBin(object):
       # TO-DO: 以下代码与binning_breaks重复，需要进行精简
       if is_numeric_dtype(dtm_ns['value']):
         break_list = ['-inf'] + list(
-            set(break_df.value.tolist()).difference(
-                {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
+          set(break_df.value.tolist()).difference(
+            {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
         break_list = sorted(list(map(float, break_list)))
         labels = [
-            '[{},{})'.format(break_list[i], break_list[i + 1])
-            for i in range(len(break_list) - 1)
+          '[{},{})'.format(break_list[i], break_list[i + 1])
+          for i in range(len(break_list) - 1)
         ]
         dtm_ns['bin_chr'] = pd.cut(
-            dtm_ns['value'], break_list, right=False, labels=labels).astype(str)
+          dtm_ns['value'], break_list, right=False, labels=labels).astype(str)
       else:
         dtm_ns = pd.merge(dtm_ns, break_df, how='left', on='value')
 
@@ -681,12 +681,12 @@ class WOEBin(object):
     # binning
     if is_numeric_dtype(dtm['value']):
       break_list = ['-inf'] + list(
-          set(break_df.value.tolist()).difference(
-              {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
+        set(break_df.value.tolist()).difference(
+          {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
       break_list = sorted(list(map(float, break_list)))
       labels = [
-          '[{},{})'.format(break_list[i], break_list[i + 1])
-          for i in range(len(break_list) - 1)
+        '[{},{})'.format(break_list[i], break_list[i + 1])
+        for i in range(len(break_list) - 1)
       ]
       bin_chr = pd.cut(dtm['value'], break_list, right=False, labels=labels)
 
@@ -718,8 +718,8 @@ class WOEBin(object):
       binning = self.binning(dtm, dtm['bin_chr'])
       # 保持分箱顺序与传入参数一致
       binning['bin_chr'] = binning['bin_chr'].astype(
-          'category').cat.set_categories(
-              breaks, ordered=True)
+        'category').cat.set_categories(
+        breaks, ordered=True)
       binning = binning.sort_values(by='bin_chr').reset_index(drop=True)
 
     return binning
@@ -740,15 +740,15 @@ class WOEBin(object):
 
     # yapf: disable
     binning = binning.assign(
-        count=lambda x: x['good'] + x['bad'],
-        bad_dist=lambda x: sub0(x['bad']) / sub0(x['bad']).sum(),
-        good_dist=lambda x: sub0(x['good']) / sub0(x['good']).sum()
+      count=lambda x: x['good'] + x['bad'],
+      bad_dist=lambda x: sub0(x['bad']) / sub0(x['bad']).sum(),
+      good_dist=lambda x: sub0(x['good']) / sub0(x['good']).sum()
     ).assign(
-        count_distr=lambda x: x['count'] / x['count'].sum(),
-        badprob=lambda x: x['bad'] / x['count'],
-        woe=lambda x: np.log(x['good_dist'] / x['bad_dist'])
+      count_distr=lambda x: x['count'] / x['count'].sum(),
+      badprob=lambda x: x['bad'] / x['count'],
+      woe=lambda x: np.log(x['good_dist'] / x['bad_dist'])
     ).assign(
-        bin_iv=lambda x: (x['good_dist'] - x['bad_dist']) * x['woe']
+      bin_iv=lambda x: (x['good_dist'] - x['bad_dist']) * x['woe']
     ).assign(total_iv=lambda x: x['bin_iv'].sum())
     # yapf: enable
 
@@ -757,8 +757,8 @@ class WOEBin(object):
     binning['bin'] = binning['bin_chr'].astype('str')
 
     return binning[[
-        'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
-        'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
+      'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
+      'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
     ]]
 
 
@@ -791,8 +791,8 @@ class InitBin(WOEBin):
     if np.any(bin_sample_count == 0):
       bin_sample_count = bin_sample_count[bin_sample_count != 0]
       bin_right = set([
-          re.match(r'\[(.+),(.+)\)', i).group(1)
-          for i in bin_sample_count.index.astype('str')
+        re.match(r'\[(.+),(.+)\)', i).group(1)
+        for i in bin_sample_count.index.astype('str')
       ]).difference({'-inf', 'inf'})
       breaks = sorted(list(map(float, ['-inf'] + list(bin_right) + ['inf'])))
     return breaks
@@ -900,12 +900,12 @@ class HistogramInitBin(InitBin):
         breaks = np.unique(xvalue_rm_outlier)
       else:
         breaks = self._pretty(
-            low=min(xvalue_rm_outlier),
-            high=max(xvalue_rm_outlier),
-            n=self.n_bins)
+          low=min(xvalue_rm_outlier),
+          high=max(xvalue_rm_outlier),
+          n=self.n_bins)
 
       breaks = list(
-          filter(lambda x: np.nanmin(xvalue) < x <= np.nanmax(xvalue), breaks))
+        filter(lambda x: np.nanmin(xvalue) < x <= np.nanmax(xvalue), breaks))
       breaks = [float('-inf')] + sorted(breaks) + [float('inf')]
       breaks = self.check_empty_bins(dtm, breaks)
     else:
@@ -928,7 +928,7 @@ class OptimBinMixin:
     if not is_numeric_dtype(dtm['value']):
       binning['badprob'] = binning['bad'] / binning['count']
       binning = binning.sort_values(
-          by='badprob', ascending=False).reset_index(drop=True)
+        by='badprob', ascending=False).reset_index(drop=True)
 
     return binning
 
@@ -976,9 +976,9 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         return chi2_contingency(arr, correction=True)[0]
 
     binning['chi2'] = binning.apply(
-        lambda x: chi2_cont_tbl([[x['good'], x['bad']],
-                                 [x['good_lag'], x['bad_lag']]]),
-        axis=1)
+      lambda x: chi2_cont_tbl([[x['good'], x['bad']],
+                               [x['good_lag'], x['bad_lag']]]),
+      axis=1)
     del binning['good_lag']
     del binning['bad_lag']
 
@@ -1017,8 +1017,8 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
       # yapf: disable
       binning_chi2.loc[idx - 1, 'bin_chr'] = '%,%'.join(
-          [binning_chi2.loc[idx - 1, 'bin_chr'],
-           binning_chi2.loc[idx, 'bin_chr']])
+        [binning_chi2.loc[idx - 1, 'bin_chr'],
+         binning_chi2.loc[idx, 'bin_chr']])
       binning_chi2.loc[idx - 1, 'count'] = (
           binning_chi2.loc[idx - 1, 'count'] +
           binning_chi2.loc[idx, 'count'])
@@ -1037,12 +1037,12 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         # 数值类型分箱合并
         # [a,b)%,%[b,c) → [a,c)
         binning_chi2['bin_chr'] = binning_chi2['bin_chr'].apply(
-            lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+          lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
 
       index = binning_chi2.index.tolist()
       index.remove(idx)
       binning_chi2 = binning_chi2.iloc[
-          index,
+        index,
       ].reset_index(drop=True)
       binning_chi2 = self.chi2_stat(binning_chi2)
     # End of loop
@@ -1131,7 +1131,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
 
     if is_numeric_dtype(dtm['value']):
       best_binning['bin_chr'] = best_binning['bin_chr'].apply(
-          lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+        lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
       _pattern = re.compile(r"^\[(.*), *(.*)\)")
       breaks = best_binning['bin_chr'].apply(lambda x: _pattern.match(x)[2])
       breaks = pd.to_numeric(breaks)
@@ -1143,16 +1143,16 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
   def merge_binning(self, binning, node_ids):
     # yapf: disable
     new_binning = binning.groupby([
-        'variable',
-        node_ids,
+      'variable',
+      node_ids,
     ]).agg(bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())),
            count=('count', 'sum'),
            count_distr=('count_distr', 'sum'),
            good=('good', 'sum'),
            bad=('bad', 'sum')
            ).assign(
-        bad_prob=lambda x: x['bad'] / x['count'],
-        total_iv=lambda x: self.iv(x['good'], x['bad']))
+      bad_prob=lambda x: x['bad'] / x['count'],
+      total_iv=lambda x: self.iv(x['good'], x['bad']))
     # yapf: enable
 
     return new_binning
@@ -1218,14 +1218,14 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
   no_cores = max(no_cores, 1)
 
   tasks = [
-      (
-          pd.DataFrame({
-              'y': 0,  # 不重要
-              'variable': var,
-              'value': dt[var]
-          }),
-          bins[var],
-          value) for var in x_vars
+    (
+      pd.DataFrame({
+        'y': 0,  # 不重要
+        'variable': var,
+        'value': dt[var]
+      }),
+      bins[var],
+      value) for var in x_vars
   ]
 
   if no_cores == 1:
@@ -1240,7 +1240,7 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
   # running time
   running_time = time.time() - start_time
   logging.info('Woe transformation on {} rows and {} columns in {}'.format(
-      dt.shape[0], n_x, time.strftime("%H:%M:%S", time.gmtime(running_time))))
+    dt.shape[0], n_x, time.strftime("%H:%M:%S", time.gmtime(running_time))))
   return dat
 
 
@@ -1261,11 +1261,11 @@ def plot_bin(binx, title, show_iv):
     y_left_max = 1
   # title
   title_string = binx.loc[0, 'variable'] + "  (iv:" + str(
-      round(binx.loc[0,
-                     'total_iv'], 4)) + ")" if show_iv else binx.loc[0,
-                                                                     'variable']
+    round(binx.loc[0,
+    'total_iv'], 4)) + ")" if show_iv else binx.loc[0,
+  'variable']
   title_string = (
-      title + '-' + title_string if title is not None else title_string)
+    title + '-' + title_string if title is not None else title_string)
   # param
   ind = np.arange(len(binx.index))  # the x locations for the groups
   width = 0.35  # the width of the bars: can also be len(x) sequence
@@ -1274,29 +1274,29 @@ def plot_bin(binx, title, show_iv):
   ax2 = ax1.twinx()
   # ax1
   p1 = ax1.bar(
-      ind, binx['good_distr'], width, color=(24 / 254, 192 / 254, 196 / 254))
+    ind, binx['good_distr'], width, color=(24 / 254, 192 / 254, 196 / 254))
   p2 = ax1.bar(
-      ind,
-      binx['bad_distr'],
-      width,
-      bottom=binx['good_distr'],
-      color=(246 / 254, 115 / 254, 109 / 254))
+    ind,
+    binx['bad_distr'],
+    width,
+    bottom=binx['good_distr'],
+    color=(246 / 254, 115 / 254, 109 / 254))
   for i in ind:
     ax1.text(
-        i,
-        binx.loc[i, 'count_distr'] * 1.02,
-        str(round(binx.loc[i, 'count_distr'] * 100, 1)) + '%, ' +
-        str(binx.loc[i, 'count']),
-        ha='center')
+      i,
+      binx.loc[i, 'count_distr'] * 1.02,
+      str(round(binx.loc[i, 'count_distr'] * 100, 1)) + '%, ' +
+      str(binx.loc[i, 'count']),
+      ha='center')
   # ax2
   ax2.plot(ind, binx['badprob'], marker='o', color='blue')
   for i in ind:
     ax2.text(
-        i,
-        binx.loc[i, 'badprob'] * 1.02,
-        str(round(binx.loc[i, 'badprob'] * 100, 1)) + '%',
-        color='blue',
-        ha='center')
+      i,
+      binx.loc[i, 'badprob'] * 1.02,
+      str(round(binx.loc[i, 'badprob'] * 100, 1)) + '%',
+      color='blue',
+      ha='center')
   # settings
   ax1.set_ylabel('Bin count distribution')
   ax2.set_ylabel('Bad probability', color='blue')
@@ -1369,15 +1369,14 @@ def sc_bins_to_df(sc_bins):
     else:
       iv_interval = '[0.2, +)'
 
-    # fix bugs
-    woe = x[~x.is_special_is_special_valuesvalues].woe
-    monotonic_type = monotonic(woe)
+    badrate = x[~x.is_special_values].badprob
+    monotonic_type = monotonic(badrate)
 
     return pd.Series(
-        [iv, iv_interval, monotonic_type,
-         lift.max(), lift.min()],
-        index=['IV', 'IV区间', '单调性', '最大Lift', '最小Lift'],
-        dtype='object')
+      [iv, iv_interval, monotonic_type,
+       lift.max(), lift.min()],
+      index=['IV', 'IV区间', '单调性', '最大Lift', '最小Lift'],
+      dtype='object')
 
   iv_df = woe_df.groupby(by='variable').apply(iv_stats)
   iv_df.sort_values(by='IV', ascending=False, inplace=True)
@@ -1390,12 +1389,12 @@ def make_scorecard(sc_bins, coef, *, base_points=600, base_odds=50, pdo=20):
 
   base_score = -a * coef['const'] + b
   score_df = [
-      pd.DataFrame({
-          'variable': ['base score'],
-          'bin': [''],
-          'woe': [''],
-          'score': [base_score]
-      })
+    pd.DataFrame({
+      'variable': ['base score'],
+      'bin': [''],
+      'woe': [''],
+      'score': [base_score]
+    })
   ]
 
   for var in coef.keys():
@@ -1446,7 +1445,7 @@ def woebin_breaks(bins):
   brk_spcs = {key: get_breaks(value) for key, value in bins.items()}
   breaks = {k: v['breaks'] for k, v in brk_spcs.items()}
   special_values = {
-      k: v['special_values'] for k, v in brk_spcs.items() if v['special_values']
+    k: v['special_values'] for k, v in brk_spcs.items() if v['special_values']
   }
   return breaks, special_values
 
@@ -1485,18 +1484,18 @@ def woebin_psi(df_base, df_cmp, bins):
 
   for variable in variables:
     psi_df = pd.pivot_table(
-        dat, index=variable, columns=['set'], values=['idx'], aggfunc='count')
+      dat, index=variable, columns=['set'], values=['idx'], aggfunc='count')
     psi_df.columns = ['base', 'cmp']
     psi_df['variable'] = variable[:-4]
     psi_df['bin'] = psi_df.index
     psi_df.reset_index(drop=True, inplace=True)
 
     psi_df = psi_df.assign(
-        base_distr=lambda x: x['base'] / x['base'].sum(),
-        cmp_distr=lambda x: x['cmp'] / x['cmp'].sum()).assign(
-            psi=lambda x: psi(x['base_distr'], x['cmp_distr']))[[
-                'variable', 'bin', 'base_distr', 'cmp_distr', 'psi'
-            ]]
+      base_distr=lambda x: x['base'] / x['base'].sum(),
+      cmp_distr=lambda x: x['cmp'] / x['cmp'].sum()).assign(
+      psi=lambda x: psi(x['base_distr'], x['cmp_distr']))[[
+      'variable', 'bin', 'base_distr', 'cmp_distr', 'psi'
+    ]]
     psi_dfs.append(psi_df)
 
   return pd.concat(psi_dfs, ignore_index=True)
