@@ -12,6 +12,6 @@ def addpath():
 
 
 if __name__ == '__main__':
-    import sy_riskmodels
+    import syriskmodels
 
-    print(sy_riskmodels.__path__)
+    print(syriskmodels.__path__)

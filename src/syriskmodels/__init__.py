@@ -1,13 +1,13 @@
 # -*- encoding: utf-8 -*-
-__version__ = '0.0.8'
+__version__ = '0.0.9-alpha2'
 
-import sy_riskmodels.contrib as contrib
-import sy_riskmodels.detector as detector
-import sy_riskmodels.evaluate as evaluate
-import sy_riskmodels.logging as logging
-import sy_riskmodels.models as models
-import sy_riskmodels.scorecard as scorecard
-import sy_riskmodels.utils as utils
+import syriskmodels.contrib as contrib
+import syriskmodels.detector as detector
+import syriskmodels.evaluate as evaluate
+import syriskmodels.logging as logging
+import syriskmodels.models as models
+import syriskmodels.scorecard as scorecard
+import syriskmodels.utils as utils
 from .detector import detect
 from .evaluate import gains_table
 from .evaluate import ks_score
