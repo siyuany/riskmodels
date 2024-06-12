@@ -1,5 +1,5 @@
 # -*- encoding: utf-8 -*-
-__version__ = '0.0.9-alpha2'
+__version__ = '0.0.9'
 
 import syriskmodels.contrib as contrib
 import syriskmodels.detector as detector
