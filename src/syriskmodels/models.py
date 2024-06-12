@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import check_cv
 
-import sy_riskmodels.logging as logging
+import syriskmodels.logging as logging
 
 
 class LogisticRegressionCV(object):

@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sy_riskmodels"
-version = "0.0.8"
+name = "syriskmodels"
+version = "0.0.9"
 authors = [
   { name="YAO Siyuan", email="siyuan89@163.com" },
 ]

@@ -2,8 +2,8 @@
 
 import pandas as pd
 
-from sy_riskmodels.scorecard import woebin
-from sy_riskmodels.scorecard import woebin_breaks
+from syriskmodels.scorecard import woebin
+from syriskmodels.scorecard import woebin_breaks
 
 
 def risk_trends_consistency(df, sc_bins, target):
@@ -12,7 +12,7 @@ def risk_trends_consistency(df, sc_bins, target):
 
     Args:
         df: pd.DataFrame
-        sc_bins: sy_riskmodels.scorecard.woebin 返回的结果
+        sc_bins: syriskmodels.scorecard.woebin 返回的结果
         target: 目标变量的列名
 
     Returns:
