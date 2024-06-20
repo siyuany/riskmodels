@@ -1,6 +1,9 @@
 # -*- encoding: utf-8 -*-
+from types import UnionType
+from typing import List, Union
 
 import numpy as np
+import pandas as pd
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -48,7 +51,7 @@ class LogisticRegressionCV(object):
 
     train_auc = roc_auc_score(train_actual, train_predicted)
     valid_auc = roc_auc_score(valid_actual, valid_predicted)
-    logging.info(f'训练集 AUC={train_auc:.2%}，测试集 AUC={valid_auc:.2%}')
+    logging.debug(f'训练集 AUC={train_auc:.2%}，测试集 AUC={valid_auc:.2%}')
 
     return min(train_auc, valid_auc) - abs(train_auc - valid_auc)
 
@@ -62,14 +65,31 @@ def group_split_cv(group_arr):
     yield np.argwhere(train).ravel(), np.argwhere(~train).ravel()
 
 
-def stepwise_lr(df, y, x, cv=3, max_num_features=30, **lr_kwargs):
+def stepwise_lr(df: pd.DataFrame,
+                y: str,
+                x: Union[str, List[str]],
+                cv: int = 3,
+                max_num_features: int = 30,
+                initial_features: Union[str, List[str]] = None,
+                direction: str = 'bidirectional',
+                **lr_kwargs):
   feature_pool = x
-  selected_features = []
+  if initial_features is None:
+    selected_features = []
+  else:
+    if isinstance(initial_features, str):
+      selected_features = [initial_features]
+    elif not isinstance(initial_features, list):
+      selected_features = list(initial_features)
+    else:
+      selected_features = initial_features
   best_metrics = None
+  assert direction in ('forward', 'backward', 'bidirectional'), \
+    f'direction参数为 forward, backward, bidirectional 三者之一，输入{direction}不合法'
 
   def get_features_perf(feature_list):
     lr_cv = LogisticRegressionCV(cv=cv, **lr_kwargs)
-    auc = lr_cv.fit_and_eval(df[feature_list].values, y)
+    auc = lr_cv.fit_and_eval(df[feature_list].values, df[y])
     return auc
 
   step = 0
@@ -78,23 +98,25 @@ def stepwise_lr(df, y, x, cv=3, max_num_features=30, **lr_kwargs):
     improved = False
     step += 1
 
-    for feature in feature_pool:
-      train_features = selected_features + [feature]
-      perf_records[tuple(train_features)] = get_features_perf(train_features)
-
-    if len(selected_features) > 1:
-      for feature in selected_features:
-        train_features = selected_features.copy()
-        train_features.remove(feature)
+    if direction in ['forward', 'bidirectional']:
+      for feature in feature_pool:
+        train_features = selected_features + [feature]
         perf_records[tuple(train_features)] = get_features_perf(train_features)
 
-    for key, value in perf_records.items():
-      if best_metrics is None or (best_metrics < value and
-                                  len(key) <= max_num_features):
-        selected_features = list(key)
-        best_metrics = value
-        improved = True
-        feature_pool = [f for f in x if f not in selected_features]
+      if len(selected_features) > 1:
+        for feature in selected_features:
+          train_features = selected_features.copy()
+          train_features.remove(feature)
+          perf_records[tuple(train_features)] = get_features_perf(train_features)
+
+    if direction in ['backward', 'bidirectional']:
+      for key, value in perf_records.items():
+        if best_metrics is None or (best_metrics < value and
+                                    len(key) <= max_num_features):
+          selected_features = list(key)
+          best_metrics = value
+          improved = True
+          feature_pool = [f for f in x if f not in selected_features]
 
     if improved:
       logging.info(f'Step {step}:\nSelected features: {selected_features}\n'
