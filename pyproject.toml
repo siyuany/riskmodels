@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syriskmodels"
-version = "0.1.1"
+version = "0.2.1"
 authors = [
   { name="YAO Siyuan", email="siyuan89@163.com" },
 ]
 description = "信用风险模型工具包"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
