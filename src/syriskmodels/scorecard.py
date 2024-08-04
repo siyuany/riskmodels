@@ -31,6 +31,7 @@ import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
+from scipy.stats import fisher_exact
 
 import syriskmodels.logging as logging
 from syriskmodels.evaluate import psi
@@ -425,10 +426,9 @@ class WOEBin(object):
     assert vec is not None, 'vec cannot be None'
     vec = [str(i) for i in vec]
     a = pd.DataFrame({'bin_chr': vec}).assign(rowid=lambda x: x.index)
-    b = pd.DataFrame([i.split('%,%') for i in vec], index=vec) \
-      .stack().replace('missing', np.nan) \
-      .reset_index(name='value') \
-      .rename(columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
+    b = pd.DataFrame([i.split('%,%') for i in vec], index=vec).stack().replace(
+        'missing', np.nan).reset_index(name='value').rename(
+            columns={'level_0': 'bin_chr'})[['bin_chr', 'value']]
 
     df = pd.merge(a, b, on='bin_chr')
     return df
@@ -649,7 +649,7 @@ class WOEBin(object):
 
       binning = self.binning(dtm, bin_chr)
 
-      # 不缺定经过正常流程是否还会产生空值，故注释掉下面代码，后续测试中如果发现确实
+      # 不确定经过正常流程是否还会产生空值，故注释掉下面代码，后续测试中如果发现确实
       # 存在空值再行处理。不建议在此处强行合并到missing中。
       # # sort bin
       # binning = pd.merge(
@@ -875,7 +875,7 @@ class HistogramInitBin(InitBin):
 
 
 class OptimBinMixin:
-  """粗分箱Mixin，提供initial_binning方法，根据细分箱切分点生成分享统计表"""
+  """最优分箱Mixin，提供initial_binning方法，根据细分箱切分点生成分箱统计表"""
 
   def initial_binning(self, dtm, breaks):
     binning = self.binning_breaks(dtm, breaks)
@@ -942,8 +942,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
     return binning
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
-                               f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
     binning = self.initial_binning(dtm, breaks)
     binning_chi2 = self.chi2_stat(binning)
     binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
@@ -1040,11 +1039,10 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
     self.ensure_monotonic = ensure_monotonic
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
-                               f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
     binning_tree = self.initial_binning(dtm, breaks)
     binning_tree['node_id'] = 0
-    binning_tree['cp'] = False
+    binning_tree['cp'] = False  # cut point flag
     binning_tree.loc[len(binning_tree) - 1, 'cp'] = True
 
     last_iv = 0
@@ -1132,30 +1130,109 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
     return iv.sum()
 
 
-@nb.njit
-def foil():
-  ...
-
-
+@WOEBinFactory.register('rule')
 class RuleOptimBin(WOEBin, OptimBinMixin):
-  """规则优化分箱算法，用于生成单变量规则。
+  """规则优化分箱算法，用于生成单变量规则。该分箱方式会生成三个分箱（不包含特殊值分箱），
+  分别为拒绝分箱、监控分箱、通过分箱。其中拒绝分箱的坏率提升度需大于 `min_lift`，通过
+  分箱为紧邻拒绝分箱、占比>5%的样本，其余为通过分箱。建议上游细分箱方法采用 
+  `QuantileInitBin`，且`initial_bins > 20`。
 
-   required_list: 要求最小风险提升度，默认为 3
-   min_hit_samples: 最小命中样本数，默认为 None 代表不限制命中样本数
-   """
+  * 假设检验：拒绝分箱坏率显著高于整体坏率（alpha=0.05），不满足时无法分箱
+  * 最小命中样本数：拒绝分箱最少样本数，默认不限制，建议设置为50以上，不满足时无法分箱
+
+  Args:
+    min_lift: 要求最小风险提升度，默认为 3
+    min_hit_samples: 最小命中样本数，默认为 None 代表不限制命中样本数
+  """
 
   def __init__(self,
-               required_lift: float = 3,
-               min_hit_samples: Optional[int] = None):
+               min_lift: float = 3,
+               min_hit_samples: Optional[int] = None,
+               pvalue: float = 0.05,
+               eps: float = 1e-8):
     super().__init__()
-    self._required_lift = required_lift
-    self._min_hit_samples = min_hit_samples
+    self._min_lift = min_lift
+    self._min_hit_samples = min_hit_samples or 0
+    self._p = pvalue
+    self._eps = eps
+
+  def cut_binning(self, binning, idx):
+    flag = np.where(binning.index <= idx, 'left', 'right')
+    new_binning = binning.groupby([
+        'variable',
+        flag,
+    ]).agg(
+        bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())),
+        count=('count', 'sum'),
+        count_distr=('count_distr', 'sum'),
+        good=('good', 'sum'),
+        bad=('bad', 'sum')).assign(
+            bad_prob=lambda x: x['bad'] / x['count'],
+            bad_prob_all=lambda x: x['bad'].sum() / x['count'].sum()).assign(
+                lift=lambda x: (x['bad_prob'] + self._eps) / x['bad_prob_all'])
+    new_binning['foil'] = new_binning['bad'] * np.log2(new_binning['lift'])
+
+    # yapf: disable
+    if not (np.any(new_binning['lift'] > self._min_lift)
+      and new_binning['count'].min() > self._min_hit_samples
+      and fisher_exact(new_binning[['good', 'bad']]).pvalue < self._p):
+      new_binning['foil'] = 0
+    # yapf: enable
+
+    return new_binning.reset_index(drop=True)
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
-                               f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
     binning = self.initial_binning(dtm, breaks)
-    ...
+    binning['sample'] = 'pass'
+
+    # 步骤1：寻找最优切点
+    cut_idx_metric = {}
+    for idx in range(binning.shape[0] - 2):
+      cut_idx_metric[idx] = self.cut_binning(binning, idx)['foil'].max()
+    sorted_cut_idx_metric = sorted(cut_idx_metric.items(), key=lambda x: -x[1])
+    best_cut_idx = sorted_cut_idx_metric[0][0]
+    best_cut_metric = sorted_cut_idx_metric[0][1]
+
+    # 步骤2：设置监控分箱
+    if best_cut_metric == 0:
+      # 无法找到最优切点
+      return [-np.inf, np.inf]
+    else:
+      new_binning = self.cut_binning(binning, best_cut_idx)
+      binning['cum_count_distr'] = binning['count_distr'].cumsum()
+      # yapf: disable
+      if new_binning['bad_prob'].is_monotonic_decreasing:
+        # 坏率下降，拒绝极小值
+        reject_ratio = binning['count_distr'].iloc[best_cut_idx]
+        monitor_cut_idx = binning.index[
+          binning['cum_count_distr'] >= min(reject_ratio + 0.05, 1)].min()
+      else:
+        # 坏率提升，拒绝极大值
+        reject_ratio = 1 - binning['cum_count_distr'].iloc[best_cut_idx]
+        monitor_cut_idx = binning.index[
+          binning['cum_count_distr'] <= max(1 - reject_ratio - 0.05, 0)].max()
+      # yapf: enable
+
+    cut_idx = sorted([best_cut_idx, monitor_cut_idx])
+    binning_idx_cut = pd.cut(binning.index, [-np.inf] + cut_idx + [np.inf])
+    best_binning = binning.groupby(
+        [
+            'variable',
+            binning_idx_cut,
+        ], observed=False).agg(
+            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
+
+    if is_numeric_dtype(dtm['value']):
+      best_binning['bin_chr'] = best_binning['bin_chr'].apply(
+          lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+      _pattern = re.compile(r"^\[(.*), *(.*)\)")
+      breaks = best_binning['bin_chr'].apply(lambda x: _pattern.match(x)[2])
+      breaks = pd.to_numeric(breaks)
+    else:
+      breaks = best_binning['bin_chr']
+
+    return breaks
 
 
 def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
@@ -1362,7 +1439,7 @@ def sc_bins_to_df(sc_bins):
   if woe_df is None:
     return None, None
   else:
-    iv_df = woe_df.groupby(by='variable').apply(iv_stats)
+    iv_df = woe_df.groupby(by='variable').apply(iv_stats, include_groups=False)
     iv_df.sort_values(by='IV', ascending=False, inplace=True)
     return woe_df, iv_df
 
