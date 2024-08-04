@@ -21,9 +21,11 @@ import itertools
 import multiprocessing as mp
 import re
 import time
+from typing import Optional
 from typing import Union
 
 import matplotlib.pyplot as plt
+import numba as nb
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
@@ -32,7 +34,9 @@ from scipy.stats import chi2_contingency
 
 import syriskmodels.logging as logging
 from syriskmodels.evaluate import psi
-from syriskmodels.utils import monotonic, round_, str_to_list
+from syriskmodels.utils import monotonic
+from syriskmodels.utils import round_
+from syriskmodels.utils import str_to_list
 
 OK = 0
 CONST = 10
@@ -588,7 +592,7 @@ class WOEBin(object):
     if len(special_values) == 0:
       special_values = None
     breaks = bin_res['breaks'][~bin_res['is_special_values']]
-    dtm['value']  = replace_blank_string(dtm['value'])
+    dtm['value'] = replace_blank_string(dtm['value'])
     split_dtm = cls.split_special_values(dtm, special_values)
     dtm_sv = split_dtm['dtm_sv']
     dtm_ns = split_dtm['dtm_ns']
@@ -1128,6 +1132,32 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
     return iv.sum()
 
 
+@nb.njit
+def foil():
+  ...
+
+
+class RuleOptimBin(WOEBin, OptimBinMixin):
+  """规则优化分箱算法，用于生成单变量规则。
+
+   required_list: 要求最小风险提升度，默认为 3
+   min_hit_samples: 最小命中样本数，默认为 None 代表不限制命中样本数
+   """
+
+  def __init__(self,
+               required_lift: float = 3,
+               min_hit_samples: Optional[int] = None):
+    super().__init__()
+    self._required_lift = required_lift
+    self._min_hit_samples = min_hit_samples
+
+  def woebin(self, dtm, breaks=None):
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" \
+                               f"需要传入初始分箱（细分箱）结果"
+    binning = self.initial_binning(dtm, breaks)
+    ...
+
+
 def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
   """
     将woebin函数返回分箱结果进行应用，与`scorecardpy.woebin_ply`相比，增加参数`value`。
@@ -1161,8 +1191,6 @@ def woebin_ply(dt, bins, no_cores=None, replace_blank=False, value='woe'):
   n_x = len(x_vars)
   # initial data set
   dat = dt.loc[:, list(set(x_vars_dt) - set(x_vars))].copy()
-
-
 
   if no_cores is None or no_cores < 1:
     all_cores = mp.cpu_count() - 1
