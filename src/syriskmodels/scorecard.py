@@ -1184,7 +1184,8 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
   def woebin(self, dtm, breaks=None):
     assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
     binning = self.initial_binning(dtm, breaks)
-    binning['sample'] = 'pass'
+    if binning.shape[0] < 2:
+      return [-np.inf, np.inf]
 
     # 步骤1：寻找最优切点
     cut_idx_metric = {}
@@ -1207,21 +1208,22 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         reject_ratio = binning['count_distr'].iloc[best_cut_idx]
         monitor_cut_idx = binning.index[
           binning['cum_count_distr'] >= min(reject_ratio + 0.05, 1)].min()
+        if np.isnan(monitor_cut_idx):
+          monitor_cut_idx = np.inf
       else:
         # 坏率提升，拒绝极大值
         reject_ratio = 1 - binning['cum_count_distr'].iloc[best_cut_idx]
         monitor_cut_idx = binning.index[
           binning['cum_count_distr'] <= max(1 - reject_ratio - 0.05, 0)].max()
+        if np.isnan(monitor_cut_idx):
+          monitor_cut_idx = -np.inf
       # yapf: enable
 
-    cut_idx = sorted([best_cut_idx, monitor_cut_idx])
-    binning_idx_cut = pd.cut(binning.index, [-np.inf] + cut_idx + [np.inf])
-    best_binning = binning.groupby(
-        [
-            'variable',
-            binning_idx_cut,
-        ], observed=False).agg(
-            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
+    cut_idx = np.sort(
+        np.unique([-np.inf, best_cut_idx, monitor_cut_idx, np.inf]))
+    binning['grp'] = pd.cut(binning.index, cut_idx)
+    best_binning = binning.groupby(['variable', 'grp'], observed=False).agg(
+        bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
 
     if is_numeric_dtype(dtm['value']):
       best_binning['bin_chr'] = best_binning['bin_chr'].apply(
