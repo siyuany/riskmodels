@@ -1208,7 +1208,7 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         reject_ratio = binning['count_distr'].iloc[best_cut_idx]
         monitor_cut_idx = binning.index[
           binning['cum_count_distr'] >= min(reject_ratio + 0.05, 1)].min()
-        if np.isnan(monitor_cut_idx):
+        if np.isnan(monitor_cut_idx) or (monitor_cut_idx > binning.shape[0] - 2):
           monitor_cut_idx = np.inf
       else:
         # 坏率提升，拒绝极大值
