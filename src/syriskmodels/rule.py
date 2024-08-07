@@ -58,14 +58,18 @@ def eval_rules(df, stat_fn, *rule):
 
             metrics.append({
                 'rule': rule.__name__,
-                'hit': hit_rate,
+                'hit_good': hit_good,
+                'hit_bad': hit_bad,
+                'hit_rate': hit_rate,
                 'badrate': hit_badrate,
                 'foil': foil
             })
         else:
             metrics.append({
                 'rule': rule.__name__,
-                'hit': 0,
+                'hit_good': 0,
+                'hit_bad': 0,
+                'hit_rate': 0,
                 'badrate': np.nan,
                 'foil': 0
             })
