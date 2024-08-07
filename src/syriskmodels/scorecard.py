@@ -942,7 +942,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
     return binning
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
     binning = self.initial_binning(dtm, breaks)
     binning_chi2 = self.chi2_stat(binning)
     binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
@@ -1039,7 +1039,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
     self.ensure_monotonic = ensure_monotonic
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
     binning_tree = self.initial_binning(dtm, breaks)
     binning_tree['node_id'] = 0
     binning_tree['cp'] = False  # cut point flag
@@ -1182,14 +1182,14 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
     return new_binning.reset_index(drop=True)
 
   def woebin(self, dtm, breaks=None):
-    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，" f"需要传入初始分箱（细分箱）结果"
+    assert breaks is not None, f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
     binning = self.initial_binning(dtm, breaks)
     if binning.shape[0] < 2:
       return [-np.inf, np.inf]
 
     # 步骤1：寻找最优切点
     cut_idx_metric = {}
-    for idx in range(binning.shape[0] - 2):
+    for idx in range(binning.shape[0] - 1):
       cut_idx_metric[idx] = self.cut_binning(binning, idx)['foil'].max()
     sorted_cut_idx_metric = sorted(cut_idx_metric.items(), key=lambda x: -x[1])
     best_cut_idx = sorted_cut_idx_metric[0][0]
