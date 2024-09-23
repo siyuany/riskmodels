@@ -1141,20 +1141,24 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
   * 最小命中样本数：拒绝分箱最少样本数，默认不限制，建议设置为50以上，不满足时无法分箱
 
   Args:
-    min_lift: 要求最小风险提升度，默认为 3
+    lift: 风险阈值，默认为 3
     min_hit_samples: 最小命中样本数，默认为 None 代表不限制命中样本数
+    direction: 规则挖掘方向, good - 挖掘好客户, bad - 挖掘坏客户
   """
 
   def __init__(self,
-               min_lift: float = 3,
+               lift: float = 3,
                min_hit_samples: Optional[int] = None,
                pvalue: float = 0.05,
+               direction: str = 'bad',
                eps: float = 1e-8):
     super().__init__()
-    self._min_lift = min_lift
+    self._min_lift = lift
     self._min_hit_samples = min_hit_samples or 0
     self._p = pvalue
     self._eps = eps
+    assert direction in ['good', 'bad'], '挖掘方向为good/bad两者之一'
+    self._direction = direction
 
   def cut_binning(self, binning, idx):
     flag = np.where(binning.index <= idx, 'left', 'right')
@@ -1172,9 +1176,13 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
                 lift=lambda x: (x['bad_prob'] + self._eps) / x['bad_prob_all'])
     new_binning['foil'] = new_binning['bad'] * np.log2(new_binning['lift'])
 
+    lift_cond = ((self._direction == 'good') &
+                 (np.any(new_binning['lift'] < self._min_lift)) |
+                 ((self._direction == 'bad') &
+                  (np.any(new_binning['lift'] > self._min_lift))))
+
     # yapf: disable
-    if not (np.any(new_binning['lift'] > self._min_lift)
-      and new_binning['count'].min() > self._min_hit_samples
+    if not (lift_cond and new_binning['count'].min() > self._min_hit_samples
       and fisher_exact(new_binning[['good', 'bad']]).pvalue < self._p):
       new_binning['foil'] = 0
     # yapf: enable
@@ -1441,7 +1449,7 @@ def sc_bins_to_df(sc_bins):
   if woe_df is None:
     return None, None
   else:
-    iv_df = woe_df.groupby(by='variable').apply(iv_stats, include_groups=False)
+    iv_df = woe_df.groupby(by='variable').apply(iv_stats)
     iv_df.sort_values(by='IV', ascending=False, inplace=True)
     return woe_df, iv_df
 
