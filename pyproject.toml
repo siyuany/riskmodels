@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "syriskmodels"
-version = "0.2.5-alpha"
+version = "0.2.6"
 authors = [
   { name="YAO Siyuan", email="siyuan89@163.com" },
 ]

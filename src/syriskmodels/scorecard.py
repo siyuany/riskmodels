@@ -705,6 +705,7 @@ class WOEBin(object):
       badprob=lambda x: x['bad'] / x['count'],
       woe=lambda x: np.log(x['good_dist'] / x['bad_dist'])
     ).assign(
+      lift=lambda x: x['badprob'] / (x['bad'].sum() / x['count'].sum()),
       bin_iv=lambda x: (x['good_dist'] - x['bad_dist']) * x['woe']
     ).assign(total_iv=lambda x: x['bin_iv'].sum())
     # yapf: enable
@@ -715,7 +716,7 @@ class WOEBin(object):
 
     return binning[[
         'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
-        'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
+        'lift', 'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
     ]]
 
 

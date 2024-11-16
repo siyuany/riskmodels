@@ -138,7 +138,9 @@ def psi(base_distr, cmp_distr, epsilon=1e-3):
         # 填充0值
         if np.any(distr_arr == 0):
             distr_arr = distr_arr + epsilon
-            distr_arr = distr_arr / base_distr.sum()
+            # fix bug below:
+            # distr_arr = distr_arr / base_distr.sum()
+            distr_arr = distr_arr / distr_arr.sum()
 
         return distr_arr
 
