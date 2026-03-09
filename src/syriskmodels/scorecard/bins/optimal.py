@@ -12,10 +12,23 @@ from scipy.stats import chi2, chi2_contingency
 
 from syriskmodels.scorecard.core.base import WOEBin, OptimBinMixin
 from syriskmodels.scorecard.core.factory import WOEBinFactory
+from scipy.stats import chi2, chi2_contingency
+
+
+# 扩展 OptimBinMixin，添加 initial_binning 方法
+class _OptimBinMixinExt(OptimBinMixin):
+    def initial_binning(self, dtm, breaks):
+        binning = self.binning_breaks(dtm, breaks)
+        binning['count'] = binning['good'] + binning['bad']
+        binning['count_distr'] = binning['count'] / binning['count'].sum()
+        if not is_numeric_dtype(dtm['value']):
+            binning['badprob'] = binning['bad'] / binning['count']
+            binning = binning.sort_values(by='badprob', ascending=False).reset_index(drop=True)
+        return binning
 
 
 @WOEBinFactory.register(['chi2', 'chimerge'])
-class ChiMergeOptimBin(WOEBin, OptimBinMixin):
+class ChiMergeOptimBin(WOEBin, _OptimBinMixinExt):
     """ChiMerge 最优分箱
     
     对相邻分箱进行 Chi2 列联表独立性检验，基于检验的统计量进行分箱合并。
@@ -149,7 +162,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
 
 @WOEBinFactory.register('tree')
-class TreeOptimBin(WOEBin, OptimBinMixin):
+class TreeOptimBin(WOEBin, _OptimBinMixinExt):
     """决策树最优分箱
     
     从细分箱生成的切分点中挑选最优切分点，自顶向下逐步生成分箱树。
@@ -284,7 +297,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
 
 
 @WOEBinFactory.register('rule')
-class RuleOptimBin(WOEBin, OptimBinMixin):
+class RuleOptimBin(WOEBin, _OptimBinMixinExt):
     """规则最优分箱
     
     基于业务规则进行分箱合并。
