@@ -121,6 +121,17 @@ class TestFormatNumericBinNames:
         result = format_numeric_bin_names(binning)
         assert binning['bin_chr'].iloc[0] == original
         assert result['bin_chr'].iloc[0] == '[20,60)'
+    
+    def test_non_contiguous_intervals_raises_error(self):
+        """测试非连续区间抛出异常"""
+        from syriskmodels.scorecard.exceptions import InvalidBreaksError
+        
+        # 非连续区间：[10,20) 和 [30,40) 之间有间隙
+        binning = pd.DataFrame({
+            'bin_chr': ['[10,20)%,%[30,40)']
+        })
+        with pytest.raises(InvalidBreaksError):
+            format_numeric_bin_names(binning)
 
 
 class TestExtractBreaksFromBinning:
@@ -197,14 +208,16 @@ class TestComputeWOE:
         assert not np.isnan(woe[0])  # 不应为 NaN
         assert woe[0] > 0  # 应为正
     
-    def test_all_zero(self):
-        """测试全为 0"""
+    def test_all_zero_raises_error(self):
+        """测试全为 0 时抛异常"""
+        from syriskmodels.scorecard.exceptions import WOEComputationError
+        
         good = np.array([0, 0])
         bad = np.array([0, 0])
-        woe = compute_woe(good, bad, epsilon=0.5)
-        assert len(woe) == 2
-        # 不应为 NaN
-        assert not np.any(np.isnan(woe))
+        with pytest.raises(WOEComputationError) as exc_info:
+            compute_woe(good, bad, epsilon=0.5)
+        assert "无法计算 WOE" in str(exc_info.value)
+        assert "好样本和坏样本均为 0" in str(exc_info.value)
     
     def test_epsilon_effect(self):
         """测试 epsilon 影响"""

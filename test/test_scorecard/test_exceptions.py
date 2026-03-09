@@ -9,7 +9,8 @@ from syriskmodels.scorecard.exceptions import (
     TooManyCategoriesError,
     InvalidBreaksError,
     DataValidationError,
-    BinningAlgorithmError
+    BinningAlgorithmError,
+    WOEComputationError
 )
 
 
@@ -23,6 +24,7 @@ class TestWOEBinError:
         assert issubclass(InvalidBreaksError, WOEBinError)
         assert issubclass(DataValidationError, WOEBinError)
         assert issubclass(BinningAlgorithmError, WOEBinError)
+        assert issubclass(WOEComputationError, WOEBinError)
     
     def test_base_exception_message(self):
         """测试基类异常消息"""
@@ -155,6 +157,22 @@ class TestBinningAlgorithmError:
         """测试是 WOEBinError 子类"""
         with pytest.raises(WOEBinError):
             raise BinningAlgorithmError('test')
+
+
+class TestWOEComputationError:
+    """测试 WOE 计算异常"""
+    
+    def test_exception_message(self):
+        """测试异常消息"""
+        with pytest.raises(WOEComputationError) as exc_info:
+            raise WOEComputationError("无法计算 WOE：好样本和坏样本均为 0")
+        assert "无法计算 WOE" in str(exc_info.value)
+        assert "好样本和坏样本均为 0" in str(exc_info.value)
+    
+    def test_exception_is_woebin_error(self):
+        """测试是 WOEBinError 子类"""
+        with pytest.raises(WOEBinError):
+            raise WOEComputationError('test')
 
 
 class TestExceptionHierarchy:
