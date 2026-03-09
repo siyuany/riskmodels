@@ -23,6 +23,14 @@ from syriskmodels.scorecard.utils.binning_helpers import (
     compute_iv,
     merge_adjacent_bins
 )
+from syriskmodels.scorecard.utils.validation import (
+    check_uniques,
+    replace_blank_string,
+    check_y,
+    x_variable,
+    check_breaks_list,
+    check_special_values
+)
 
 __all__ = [
     # 常量
@@ -42,4 +50,11 @@ __all__ = [
     'compute_woe',
     'compute_iv',
     'merge_adjacent_bins',
+    # 验证函数
+    'check_uniques',
+    'replace_blank_string',
+    'check_y',
+    'x_variable',
+    'check_breaks_list',
+    'check_special_values',
 ]
