@@ -7,7 +7,7 @@ import syriskmodels.evaluate as evaluate
 import syriskmodels.logging as logging
 import syriskmodels.models as models
 import syriskmodels.rule as rule
-import syriskmodels.scorecard as scorecard
+# import syriskmodels.scorecard as scorecard  # P0 重构中，暂时注释
 import syriskmodels.utils as utils
 
 from .detector import detect
@@ -15,18 +15,21 @@ from .evaluate import gains_table
 from .evaluate import ks_score
 from .evaluate import model_eval
 from .models import stepwise_lr
-from .scorecard import make_scorecard
-from .scorecard import woebin
-from .scorecard import woebin_breaks
-from .scorecard import woebin_plot
-from .scorecard import woebin_ply
-from .scorecard import woebin_psi
+# P0 重构中，暂时注释 scorecard 相关导入
+# from .scorecard import make_scorecard
+# from .scorecard import woebin
+# from .scorecard import woebin_breaks
+# from .scorecard import woebin_plot
+# from .scorecard import woebin_ply
+# from .scorecard import woebin_psi
 from .utils import monotonic
 from .utils import sample_stats
 
 __all__ = [
-    'contrib', 'detector', 'evaluate', 'logging', 'models', 'rule', 'scorecard',
+    'contrib', 'detector', 'evaluate', 'logging', 'models', 'rule', 
+    # 'scorecard',  # P0 重构中
     'utils', 'detect', 'gains_table', 'ks_score', 'model_eval', 'stepwise_lr',
-    'make_scorecard', 'woebin', 'woebin_breaks', 'woebin_plot', 'woebin_ply',
-    'woebin_psi', 'monotonic', 'sample_stats'
+    # 'make_scorecard', 'woebin', 'woebin_breaks', 'woebin_plot', 'woebin_ply',
+    # 'woebin_psi',
+    'monotonic', 'sample_stats'
 ]

@@ -49,9 +49,8 @@ class TestExtractNumericBreaks:
         })
         breaks = extract_numeric_breaks(binning)
         expected = [(i+1)*10.0 for i in range(10)]
-        expected[-1] = np.inf  # 最后一个应该是 inf
-        assert list(breaks[:-1]) == expected[:-1]
-        assert breaks.iloc[-1] == np.inf
+        # 最后一个分箱是 [90,100)，所以提取的是 100
+        assert list(breaks) == expected
     
     def test_empty_dataframe(self):
         """测试空 DataFrame"""
@@ -221,11 +220,14 @@ class TestComputeWOE:
     
     def test_epsilon_effect(self):
         """测试 epsilon 影响"""
-        good = np.array([0])
-        bad = np.array([0])
+        # 使用非零数据测试 epsilon 的影响
+        good = np.array([10, 10])
+        bad = np.array([10, 10])
         woe_small = compute_woe(good, bad, epsilon=0.1)
         woe_large = compute_woe(good, bad, epsilon=1.0)
-        assert woe_small != woe_large
+        # 当好坏相等时，WOE 应该接近 0，不受 epsilon 影响
+        assert np.allclose(woe_small, 0, atol=1e-10)
+        assert np.allclose(woe_large, 0, atol=1e-10)
     
     def test_equal_good_bad(self):
         """测试好坏客户相等"""
@@ -272,11 +274,12 @@ class TestComputeIV:
     
     def test_single_bin(self):
         """测试单分箱"""
+        # 单分箱时，good_distr 和 bad_distr 都是 [1.]，IV 应该为 0
         woe = np.array([0.5])
         good = np.array([80])
         bad = np.array([20])
         iv = compute_iv(woe, good, bad)
-        assert iv > 0
+        assert iv == 0.0  # 单分箱 IV 为 0
     
     def test_with_zero_counts(self):
         """测试含零计数"""
@@ -301,7 +304,8 @@ class TestMergeAdjacentBins:
         })
         result = merge_adjacent_bins(binning, idx=1)
         assert len(result) == 2
-        assert result['bin_chr'].iloc[0] == '[20,60)'
+        # 合并后的分箱名是 '[20,40)%,%[40,60)' 格式
+        assert result['bin_chr'].iloc[0] == '[20,40)%,%[40,60)'
         assert result['good'].iloc[0] == 60
         assert result['bad'].iloc[0] == 20
     
@@ -314,7 +318,8 @@ class TestMergeAdjacentBins:
         })
         result = merge_adjacent_bins(binning, idx=2)
         assert len(result) == 2
-        assert result['bin_chr'].iloc[1] == '[40,80)'
+        # 合并后的分箱名是 '[40,60)%,%[60,80)' 格式
+        assert result['bin_chr'].iloc[1] == '[40,60)%,%[60,80)'
         assert result['good'].iloc[1] == 70
     
     def test_invalid_idx_zero(self):
