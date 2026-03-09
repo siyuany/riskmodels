@@ -57,6 +57,17 @@ from syriskmodels.scorecard.utils.validation import (
     check_special_values
 )
 
+# 公共 API
+from syriskmodels.scorecard.api import (
+    woebin,
+    woebin_ply,
+    woebin_breaks,
+    make_scorecard,
+    sc_bins_to_df,
+    woebin_psi,
+    woebin_plot
+)
+
 __all__ = [
     # 常量
     'VariableStatus',
@@ -94,4 +105,12 @@ __all__ = [
     'x_variable',
     'check_breaks_list',
     'check_special_values',
+    # 公共 API
+    'woebin',
+    'woebin_ply',
+    'woebin_breaks',
+    'make_scorecard',
+    'sc_bins_to_df',
+    'woebin_psi',
+    'woebin_plot',
 ]
