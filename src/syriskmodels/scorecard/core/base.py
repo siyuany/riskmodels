@@ -6,12 +6,12 @@
 """
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Union, Any
+import re
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 import syriskmodels.logging as logging
-from syriskmodels.utils import str_to_list
 
 
 class WOEBin(ABC):
@@ -124,31 +124,37 @@ class WOEBin(ABC):
         
         return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
     
-    @staticmethod
-    def dtm_binning_sv(dtm: pd.DataFrame, special_values: List) -> pd.DataFrame:
-        """特殊值分箱统计
-        
-        参数:
-            dtm: 特殊值数据
-            special_values: 特殊值列表
-        
-        返回:
-            分箱统计 DataFrame
+    @classmethod
+    def dtm_binning_sv(cls, dtm: pd.DataFrame, spl_val: Optional[List]) -> Dict[str, Optional[pd.DataFrame]]:
+        """将原数据集拆分为特殊值数据集、非特殊值数据集，并对特殊值部分做分箱统计。
+
+        该实现保持与 legacy 版 `WOEBin.dtm_binning_sv` 行为一致，用于保证向后兼容：
+        - 数值型变量：每个特殊数字单独成箱
+        - 类别型变量：按照特殊值列表中的组合成箱
+        - 返回：
+            {'binning_sv': 特殊值分箱统计结果, 'ns_dtm': 非特殊值部分 dtm}
         """
-        dtm = dtm.copy()
-        dtm['bin_chr'] = dtm['value'].astype(str)
-        dtm.loc[dtm['value'].isna(), 'bin_chr'] = 'missing'
-        
-        bin_sv = dtm.groupby('bin_chr')['y'].agg(
-            good=lambda x: (x == 0).sum(),
-            bad=lambda x: (x == 1).sum()
-        ).reset_index()
-        bin_sv['variable'] = dtm['variable'].iloc[0]
-        
-        # 标记是否为特殊值
-        bin_sv['is_special_values'] = True
-        
-        return bin_sv[['variable', 'bin_chr', 'good', 'bad', 'is_special_values']]
+        split_dtm = cls.split_special_values(dtm, spl_val)
+
+        dtm_sv = split_dtm['dtm_sv']
+        dtm_ns = split_dtm['dtm_ns']
+
+        if dtm_sv is None or dtm_sv.shape[0] == 0:
+            binning_sv = None
+        else:
+            # 对特殊值数据按照 bin_chr 统计 good/bad
+            def _n0(x):
+                return np.sum(x == 0)
+
+            def _n1(x):
+                return np.sum(x == 1)
+
+            binning_sv = dtm_sv.groupby(
+                ['variable', 'bin_chr'], observed=False
+            )['y'].agg(good=_n0, bad=_n1).reset_index()
+            binning_sv['is_special_values'] = True
+
+        return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
     
     @abstractmethod
     def woebin(self, dtm: pd.DataFrame, breaks: Optional[List] = None) -> List:
@@ -184,49 +190,127 @@ class WOEBin(ABC):
             分箱统计 DataFrame 或状态字符串 ('CONST', 'TOO_MANY_VALUES')
         """
         from syriskmodels.scorecard.constants import VariableStatus
-        
-        # 替换空字符串
-        if replace_blank is not None:
-            dtm = dtm.copy()
-            dtm['value'] = dtm['value'].replace('', replace_blank)
-        
-        # 检查唯一值
         from syriskmodels.scorecard.utils.validation import check_uniques
+        from syriskmodels.scorecard.utils.validation import replace_blank_string
+
+        # 替换空字符串，保持 legacy 语义：'' → np.nan
+        dtm = dtm.copy()
+        dtm['value'] = replace_blank_string(dtm['value'])
+
+        # 检查唯一值
         status = check_uniques(dtm['value'], max_cate_num)
-        
+
         if status == VariableStatus.CONSTANT:
             return 'CONST'
         elif status == VariableStatus.TOO_MANY_CATEGORIES:
             return 'TOO_MANY_VALUES'
-        
-        # 拆分特殊值
-        sv_result = self.split_special_values(dtm, special_values)
-        dtm_sv = sv_result['dtm_sv']
-        dtm_ns = sv_result['dtm_ns']
-        
-        # 特殊值分箱
-        if dtm_sv is not None and len(dtm_sv) > 0:
-            bin_sv = self.dtm_binning_sv(dtm_sv, special_values)
-        else:
-            bin_sv = None
-        
+
+        # 拆分特殊值并对特殊值部分做分箱
+        binning_split = self.dtm_binning_sv(dtm, special_values)
+        bin_sv = binning_split['binning_sv']
+        dtm_ns = binning_split['ns_dtm']
+
         # 非特殊值分箱
-        if breaks is not None:
-            # 使用用户指定的切分点
-            bin_ns = self.binning_breaks(dtm_ns, breaks)
+        if dtm_ns is None or len(dtm_ns) == 0:
+            bin_ns = None
         else:
-            # 调用 woebin 方法计算切分点
-            breaks = self.woebin(dtm_ns)
-            bin_ns = self.binning_breaks(dtm_ns, breaks)
-        
+            if breaks is not None:
+                # 使用用户指定的切分点
+                bin_ns = self.binning_breaks(dtm_ns, breaks)
+            else:
+                # 调用 woebin 方法计算切分点
+                breaks = self.woebin(dtm_ns)
+                bin_ns = self.binning_breaks(dtm_ns, breaks)
+
         # 合并特殊值和非特殊值结果
-        if bin_sv is not None:
+        if bin_sv is not None and bin_ns is not None:
             binning = pd.concat([bin_ns, bin_sv], ignore_index=True)
+        elif bin_sv is not None:
+            binning = bin_sv
         else:
             binning = bin_ns
-        
+
         # 格式化并计算统计量
         return self.binning_format(binning)
+
+    @classmethod
+    def apply(
+        cls,
+        dtm: pd.DataFrame,
+        bin_res: pd.DataFrame,
+        value: str = 'woe'
+    ) -> pd.Series:
+        """将单变量原始取值转换为 WOE / index / bin 值。
+
+        该实现保持与 legacy 版 `WOEBin.apply` 行为一致，确保 `woebin_ply`、
+        `woebin_psi` 等上层 API 的兼容性。
+        """
+        from syriskmodels.scorecard.utils.validation import replace_blank_string
+
+        # 提取特殊值列表
+        special_values = bin_res['breaks'][bin_res['is_special_values']].tolist()
+        if 'missing' in special_values:
+            special_values.remove('missing')
+        if len(special_values) == 0:
+            special_values = None
+
+        # 提取普通分箱切分点
+        breaks = bin_res['breaks'][~bin_res['is_special_values']]
+
+        # 预处理原始值
+        dtm = dtm.copy()
+        dtm['value'] = replace_blank_string(dtm['value'])
+
+        # 拆分特殊值 / 非特殊值
+        split_dtm = cls.split_special_values(dtm, special_values)
+        dtm_sv = split_dtm['dtm_sv']
+        dtm_ns = split_dtm['dtm_ns']
+
+        if dtm_sv is not None:
+            dtm_sv = dtm_sv[['idx', 'bin_chr', 'value', 'y']]
+
+        if dtm_ns is not None:
+            break_df = cls.split_vec_to_df(breaks)
+            # 数值型：使用切分点做区间分箱
+            if is_numeric_dtype(dtm_ns['value']):
+                break_list = ['-inf'] + list(
+                    set(break_df.value.tolist()).difference(
+                        {np.nan, '-inf', 'inf', 'Inf', '-Inf'}
+                    )
+                ) + ['inf']
+                break_list = sorted(list(map(float, break_list)))
+                labels = [
+                    f'[{break_list[i]},{break_list[i + 1]})'
+                    for i in range(len(break_list) - 1)
+                ]
+                dtm_ns['bin_chr'] = pd.cut(
+                    dtm_ns['value'],
+                    break_list,
+                    right=False,
+                    labels=labels
+                ).astype(str)
+            else:
+                # 类别型：直接按映射表合并
+                dtm_ns = pd.merge(dtm_ns, break_df, how='left', on='value')
+
+            dtm_ns = dtm_ns[['idx', 'bin_chr', 'value', 'y']]
+
+        # 合并特殊值与普通值
+        new_dtm = pd.concat([dtm_sv, dtm_ns], ignore_index=True)
+        dtm = pd.merge(dtm, new_dtm[['idx', 'bin_chr']], on='idx', how='left')
+
+        # 将分箱结果映射为所需取值（woe/index/bin）
+        bin_res = bin_res.copy()
+        bin_res['index'] = bin_res.index
+        bin_res['bin_chr'] = bin_res['bin']
+        dtm = pd.merge(dtm, bin_res[['bin_chr', value]], on='bin_chr', how='left')
+        dtm.set_index(dtm['idx'], drop=True, inplace=True)
+
+        variable = dtm['variable'].iloc[0]
+        feature_name = '_'.join([variable, value])
+        dtm.rename(columns={value: feature_name}, inplace=True)
+
+        return dtm[feature_name]
     
     def binning_breaks(self, dtm: pd.DataFrame, breaks: List) -> pd.DataFrame:
         """使用指定切分点进行分箱
@@ -239,21 +323,45 @@ class WOEBin(ABC):
             分箱统计 DataFrame
         """
         xvalue = dtm['value']
-        
+
+        # 使用与 legacy 实现一致的规则：对数值型变量，breaks 含右边界，构造区间；
+        # 对类别型变量，按照 breaks 中给定的组合成箱。
         if is_numeric_dtype(xvalue):
             # 数值型变量
-            bins = pd.cut(xvalue, breaks, right=False, include_lowest=True)
+            # 确保 breaks 是单调递增且无重复的
+            breaks = sorted(set(breaks))
+            # 移除 NaN 值（如果有）
+            breaks = [b for b in breaks if not (isinstance(b, float) and np.isnan(b))]
+            
+            bins = pd.cut(xvalue, breaks, right=False)
+            bin_chr = bins.astype(str)
+            group_key = bin_chr
         else:
-            # 类别型变量
-            bins = xvalue.astype(str)
+            # 类别型变量：按 breaks 组合类别到 bin_chr
+            break_df = self.split_vec_to_df(breaks)
+            dtm = pd.merge(dtm, break_df, how='left', on='value')
+            group_key = dtm['bin_chr']
         
-        binning = dtm.assign(bin_chr=bins).groupby('bin_chr')['y'].agg(
-            good=lambda x: (x == 0).sum(),
-            bad=lambda x: (x == 1).sum()
+        # 确保 group_key 有列名，便于后续重命名
+        if hasattr(group_key, 'name'):
+            group_key.name = 'bin_chr'
+
+        def _n0(x):
+            return np.sum(x == 0)
+
+        def _n1(x):
+            return np.sum(x == 1)
+
+        binning = dtm.groupby(['variable', group_key], observed=False)['y'].agg(
+            good=_n0, bad=_n1
         ).reset_index()
-        binning['variable'] = dtm['variable'].iloc[0]
-        binning['is_special_values'] = False
         
+        # 重命名第二列为 'bin_chr'
+        if len(binning.columns) > 1 and binning.columns[1] != 'bin_chr':
+            binning = binning.rename(columns={binning.columns[1]: 'bin_chr'})
+
+        binning['is_special_values'] = False
+
         return binning[['variable', 'bin_chr', 'good', 'bad', 'is_special_values']]
     
     def binning_format(self, binning: pd.DataFrame) -> pd.DataFrame:
@@ -291,25 +399,24 @@ class WOEBin(ABC):
         binning['bin_iv'] = (good_distr - bad_distr) * binning['woe']
         binning['total_iv'] = binning['bin_iv'].sum()
         
-        # 提取切分点
-        if is_numeric_dtype(binning['bin_chr'].dtype):
-            binning['breaks'] = binning['bin_chr']
-        else:
-            # 尝试从分箱名提取右边界
-            import re
-            pattern = re.compile(r"^\[(.*), *(.*)\)")
-            binning['breaks'] = binning['bin_chr'].apply(
-                lambda x: pattern.match(x).group(2) if pattern.match(x) else x
-            )
-            # 转换为数值型（如果可能）
-            try:
-                binning['breaks'] = pd.to_numeric(binning['breaks'])
-            except (ValueError, TypeError):
-                pass
+        # 提取切分点：保持与 legacy 行为一致，从 "[a,b)" 区间提取右端点 b，
+        # 其他情况直接使用 bin_chr 本身。
+        pattern = re.compile(r"^\[(.*), *(.*)\)")
+        binning['breaks'] = binning['bin_chr'].apply(
+            lambda x: pattern.match(str(x)).group(2)
+            if pattern.match(str(x)) else x
+        )
+        try:
+            binning['breaks'] = pd.to_numeric(binning['breaks'])
+        except (ValueError, TypeError):
+            pass
+        
+        # 添加 bin 列以保持向后兼容性
+        binning['bin'] = binning['bin_chr'].astype(str)
         
         # 重排和选择列
         col_order = [
-            'variable', 'bin_chr', 'count', 'count_distr', 'good', 'bad',
+            'variable', 'bin', 'count', 'count_distr', 'good', 'bad',
             'badprob', 'lift', 'woe', 'bin_iv', 'total_iv', 'breaks',
             'is_special_values'
         ]

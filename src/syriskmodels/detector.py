@@ -11,6 +11,7 @@ except (ModuleNotFoundError, ImportError):
   NoneType = type(None)
 from typing import Union
 
+import numpy as np
 import pandas as pd
 
 
@@ -51,8 +52,22 @@ def getDescribe(series, percentiles=None):
     """
   if percentiles is None:
     percentiles = [.25, .5, .75]
-  d = series.describe(percentiles)
-  return d.drop('count')
+  # 手动计算统计量，避免 series.describe() 在部分 pandas/numpy 版本下返回
+  # _NoValueType 等占位值导致 float()/int() 报错（如 Python 3.11 + pandas 2.x）
+  valid = series.dropna()
+  if len(valid) == 0:
+    idx = ['mean', 'std', 'min'] + [f'{int(p*100)}%' for p in percentiles] + ['max']
+    return pd.Series(index=idx, data=[np.nan] * len(idx))
+  arr = valid.values.astype(float)
+  n = len(arr)
+  mean = float(np.mean(arr))
+  std = float(np.std(arr)) if n > 1 else 0.0
+  min_ = float(np.min(arr))
+  max_ = float(np.max(arr))
+  quants = np.quantile(arr, percentiles)
+  idx = ['mean', 'std', 'min'] + [f'{int(p*100)}%' for p in percentiles] + ['max']
+  vals = [mean, std, min_] + [float(q) for q in quants] + [max_]
+  return pd.Series(index=idx, data=vals)
 
 
 def countBlank(series, blanks=None):

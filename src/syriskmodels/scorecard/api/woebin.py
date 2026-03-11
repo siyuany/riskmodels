@@ -97,6 +97,8 @@ def woebin(
         no_cores = int(
             np.ceil(xs_len / 5 if xs_len / 5 < all_cores else all_cores * 0.9)
         )
+        # 确保至少有一个进程
+        no_cores = max(no_cores, 1)
     
     # y list to str
     y = y[0]

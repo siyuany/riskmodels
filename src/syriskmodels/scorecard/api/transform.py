@@ -7,7 +7,7 @@ WOE 转换 API 模块
 import time
 import itertools
 import multiprocessing as mp
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 
 import numpy as np
 import pandas as pd
@@ -90,42 +90,52 @@ def woebin_ply(
     return dat
 
 
-def woebin_breaks(bins: Dict[str, Union[pd.DataFrame, str]]) -> Dict[str, List]:
-    """从分箱结果中提取切分点
-    
+def woebin_breaks(
+    bins: Dict[str, Union[pd.DataFrame, str]]
+) -> Tuple[Dict[str, List], Dict[str, List]]:
+    """从 woebin 返回结果中提取切分点及特殊值（向后兼容 legacy 接口）
+
     参数:
-        bins: woebin 分箱结果
-    
+        bins: woebin 函数的返回结果
+
     返回:
-        切分点字典，key 为变量名，value 为切分点列表
-    
-    示例:
-        >>> bins = woebin(df, y='target')
-        >>> breaks = woebin_breaks(bins)
-        >>> breaks['age']
-        [-inf, 25.0, 35.0, 45.0, inf]
+        (breaks, special_values) 元组：
+        - breaks: 各变量数值 / 类别切分点列表（不含特殊值）
+        - special_values: 各变量对应的特殊值列表（若无则不包含该键）
     """
-    breaks = {}
-    
-    for var, binning in bins.items():
-        if isinstance(binning, str):
-            # 常量变量或类别过多，跳过
-            continue
-        
-        # 从分箱结果中提取 breaks 列
-        if 'breaks' in binning.columns:
-            breaks[var] = binning['breaks'].tolist()
+
+    def _get_breaks(binning: pd.DataFrame) -> Dict[str, List]:
+        # 提取特殊值
+        if 'is_special_values' in binning.columns and binning['is_special_values'].any():
+            special_values = binning[binning['is_special_values']]['breaks']
+            special_values = special_values.tolist()
+
+            # 与 legacy 行为保持一致：剔除 'missing'
+            if 'missing' in special_values:
+                special_values.remove('missing')
+            if len(special_values) == 0:
+                special_values = None
         else:
-            # 尝试从 bin_chr 提取
-            import re
-            pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks_list = []
-            for bin_name in binning['bin_chr']:
-                match = pattern.match(str(bin_name))
-                if match:
-                    breaks_list.append(float(match.group(2)))
-                else:
-                    breaks_list.append(bin_name)
-            breaks[var] = breaks_list
-    
-    return breaks
+            special_values = None
+
+        # 提取普通切分点
+        if 'is_special_values' in binning.columns:
+            brks = binning[~binning['is_special_values']]['breaks']
+        else:
+            brks = binning['breaks']
+        brks = brks.tolist()
+
+        return {'breaks': brks, 'special_values': special_values}
+
+    brk_spcs = {
+        key: _get_breaks(value)
+        for key, value in bins.items()
+        if isinstance(value, pd.DataFrame)
+    }
+
+    breaks = {k: v['breaks'] for k, v in brk_spcs.items()}
+    special_values = {
+        k: v['special_values']
+        for k, v in brk_spcs.items() if v['special_values']
+    }
+    return breaks, special_values

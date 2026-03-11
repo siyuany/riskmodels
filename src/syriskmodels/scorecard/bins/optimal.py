@@ -209,8 +209,8 @@ class TreeOptimBin(WOEBin, _OptimBinMixinExt):
         
         while nodes and len(final_bins) < self.bin_num_limit:
             # 选择 IV 最大的节点进行分裂
-            best_node = max(nodes, key=lambda x: self._calculate_iv(x))
-            nodes.remove(best_node)
+            best_idx = max(range(len(nodes)), key=lambda i: self._calculate_iv(nodes[i]))
+            best_node = nodes.pop(best_idx)
             
             # 寻找最佳切分点
             best_split = self._find_best_split(best_node, total_iv)
