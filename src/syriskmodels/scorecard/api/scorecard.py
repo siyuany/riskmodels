@@ -61,7 +61,7 @@ def sc_bins_to_df(
         
         return pd.Series(
             [iv, iv_interval, monotonic_type, lift.max(), lift.min()],
-            index=['IV', 'IV 区间', '单调性', '最大 Lift', '最小 Lift'],
+            index=['IV', 'IV区间', '单调性', '最大Lift', '最小Lift'],
             dtype='object'
         )
     

@@ -48,7 +48,7 @@ class WOEBin(ABC):
             if spl_val is None:
                 special_values = ['missing']
             elif 'missing' not in spl_val:
-                special_values = spl_val + ['missing']
+                special_values = ['missing'] + spl_val
         return special_values
     
     @staticmethod
@@ -116,19 +116,62 @@ class WOEBin(ABC):
                 how='left',
                 on='value'
             )
-            dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][dtm.columns.tolist()]
-            dtm_ns = dtm_merge[dtm_merge['rowid'].isna()][dtm.columns.tolist()]
+            dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][
+                dtm.columns.tolist()].reset_index(drop=True)
+            dtm_ns = dtm_merge[dtm_merge['rowid'].isna()][
+                dtm.columns.tolist()].reset_index(drop=True)
+            
+            if len(dtm_ns) == 0:
+                dtm_ns = None
+            else:
+                dtm_ns['value'] = dtm_ns['value'].astype(dtm['value'].dtypes)
+            
+            if dtm_sv.shape[0] == 0:
+                dtm_sv = None
+            else:
+                dtm_sv = pd.merge(
+                    dtm_sv.fillna('missing'), sv_df.fillna('missing'), on='value')
         else:
             dtm_sv = None
             dtm_ns = dtm.copy()
         
+        if dtm_sv is not None:
+            dtm_sv.set_index(dtm_sv['idx'], drop=True, inplace=True)
+        
+        if dtm_ns is not None:
+            dtm_ns.set_index(dtm_ns['idx'], drop=True, inplace=True)
+        
         return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
     
+    @classmethod
+    def binning(cls, dtm: pd.DataFrame, bin_chr: pd.Series) -> pd.DataFrame:
+        """给定 dtm、分箱名序列生成 binning 统计表
+        
+        参数:
+            dtm: 输入数据 (variable, y, value 三列)
+            bin_chr: 每个样本对应的分箱名称
+        
+        返回:
+            binning DataFrame，包含 variable, bin_chr, good, bad 四列
+        """
+        def _n0(x):
+            return np.sum(x == 0)
+        
+        def _n1(x):
+            return np.sum(x == 1)
+        
+        bin_chr = bin_chr.rename(index='bin_chr')
+        binning = dtm.groupby(['variable', bin_chr], observed=False)['y'].agg(
+            good=_n0, bad=_n1)
+        binning = binning.reset_index()
+        
+        return binning
+
     @classmethod
     def dtm_binning_sv(cls, dtm: pd.DataFrame, spl_val: Optional[List]) -> Dict[str, Optional[pd.DataFrame]]:
         """将原数据集拆分为特殊值数据集、非特殊值数据集，并对特殊值部分做分箱统计。
 
-        该实现保持与 legacy 版 `WOEBin.dtm_binning_sv` 行为一致，用于保证向后兼容：
+        该实现保持与 legacy 版 `WOEBin.dtm_binning_sv` 行为一致：
         - 数值型变量：每个特殊数字单独成箱
         - 类别型变量：按照特殊值列表中的组合成箱
         - 返回：
@@ -142,17 +185,7 @@ class WOEBin(ABC):
         if dtm_sv is None or dtm_sv.shape[0] == 0:
             binning_sv = None
         else:
-            # 对特殊值数据按照 bin_chr 统计 good/bad
-            def _n0(x):
-                return np.sum(x == 0)
-
-            def _n1(x):
-                return np.sum(x == 1)
-
-            binning_sv = dtm_sv.groupby(
-                ['variable', 'bin_chr'], observed=False
-            )['y'].agg(good=_n0, bad=_n1).reset_index()
-            binning_sv['is_special_values'] = True
+            binning_sv = cls.binning(dtm_sv, dtm_sv['bin_chr'])
 
         return {'binning_sv': binning_sv, 'ns_dtm': dtm_ns}
     
@@ -222,13 +255,11 @@ class WOEBin(ABC):
                 breaks = self.woebin(dtm_ns)
                 bin_ns = self.binning_breaks(dtm_ns, breaks)
 
-        # 合并特殊值和非特殊值结果
-        if bin_sv is not None and bin_ns is not None:
-            binning = pd.concat([bin_ns, bin_sv], ignore_index=True)
-        elif bin_sv is not None:
-            binning = bin_sv
-        else:
-            binning = bin_ns
+        # 合并特殊值和非特殊值结果 — 保持与 legacy 一致的 pd.concat(keys=...) 方式
+        bin_list = {'binning_sv': bin_sv, 'binning': bin_ns}
+        binning = pd.concat(bin_list, keys=bin_list.keys())
+        binning = binning.reset_index()
+        binning = binning.assign(is_sv=lambda x: x.level_0 == 'binning_sv')
 
         # 格式化并计算统计量
         return self.binning_format(binning)
@@ -313,56 +344,40 @@ class WOEBin(ABC):
         return dtm[feature_name]
     
     def binning_breaks(self, dtm: pd.DataFrame, breaks: List) -> pd.DataFrame:
-        """使用指定切分点进行分箱
+        """按照给定的 breaks 进行分箱
         
         参数:
             dtm: 输入数据
             breaks: 切分点列表
         
         返回:
-            分箱统计 DataFrame
+            分箱统计 DataFrame (variable, bin_chr, good, bad)
         """
-        xvalue = dtm['value']
-
-        # 使用与 legacy 实现一致的规则：对数值型变量，breaks 含右边界，构造区间；
-        # 对类别型变量，按照 breaks 中给定的组合成箱。
-        if is_numeric_dtype(xvalue):
-            # 数值型变量
-            # 确保 breaks 是单调递增且无重复的
-            breaks = sorted(set(breaks))
-            # 移除 NaN 值（如果有）
-            breaks = [b for b in breaks if not (isinstance(b, float) and np.isnan(b))]
+        break_df = self.split_vec_to_df(breaks)
+        
+        # binning
+        if is_numeric_dtype(dtm['value']):
+            break_list = ['-inf'] + list(
+                set(break_df.value.tolist()).difference(
+                    {np.nan, '-inf', 'inf', 'Inf', '-Inf'})) + ['inf']
+            break_list = sorted(list(map(float, break_list)))
+            labels = [
+                '[{},{})'.format(break_list[i], break_list[i + 1])
+                for i in range(len(break_list) - 1)
+            ]
+            bin_chr = pd.cut(dtm['value'], break_list, right=False, labels=labels)
             
-            bins = pd.cut(xvalue, breaks, right=False)
-            bin_chr = bins.astype(str)
-            group_key = bin_chr
+            binning = self.binning(dtm, bin_chr)
         else:
-            # 类别型变量：按 breaks 组合类别到 bin_chr
-            break_df = self.split_vec_to_df(breaks)
             dtm = pd.merge(dtm, break_df, how='left', on='value')
-            group_key = dtm['bin_chr']
+            binning = self.binning(dtm, dtm['bin_chr'])
+            # 保持分箱顺序与传入参数一致
+            binning['bin_chr'] = binning['bin_chr'].astype(
+                'category').cat.set_categories(
+                    breaks, ordered=True)
+            binning = binning.sort_values(by='bin_chr').reset_index(drop=True)
         
-        # 确保 group_key 有列名，便于后续重命名
-        if hasattr(group_key, 'name'):
-            group_key.name = 'bin_chr'
-
-        def _n0(x):
-            return np.sum(x == 0)
-
-        def _n1(x):
-            return np.sum(x == 1)
-
-        binning = dtm.groupby(['variable', group_key], observed=False)['y'].agg(
-            good=_n0, bad=_n1
-        ).reset_index()
-        
-        # 重命名第二列为 'bin_chr'
-        if len(binning.columns) > 1 and binning.columns[1] != 'bin_chr':
-            binning = binning.rename(columns={binning.columns[1]: 'bin_chr'})
-
-        binning['is_special_values'] = False
-
-        return binning[['variable', 'bin_chr', 'good', 'bad', 'is_special_values']]
+        return binning
     
     def binning_format(self, binning: pd.DataFrame) -> pd.DataFrame:
         """格式化分箱统计结果
@@ -375,53 +390,39 @@ class WOEBin(ABC):
         返回:
             格式化后的 DataFrame
         """
-        binning = binning.copy()
-        
-        # 基础统计
-        binning['count'] = binning['good'] + binning['bad']
-        total_good = binning['good'].sum()
-        total_bad = binning['bad'].sum()
-        binning['count_distr'] = binning['count'] / binning['count'].sum()
-        binning['badprob'] = binning['bad'] / binning['count']
-        
-        # 提升度
-        overall_badprob = total_bad / (total_good + total_bad)
-        binning['lift'] = binning['badprob'] / overall_badprob
-        
-        # WOE 和 IV 计算
         def sub0(x):
+            """substitute 0"""
             return np.where(x == 0, self.epsilon, x)
         
-        good_distr = sub0(binning['good']) / total_good
-        bad_distr = sub0(binning['bad']) / total_bad
+        _pattern = re.compile(r"^\[(.*), *(.*)\)((%,%missing)*)")
         
-        binning['woe'] = np.log(good_distr / bad_distr)
-        binning['bin_iv'] = (good_distr - bad_distr) * binning['woe']
-        binning['total_iv'] = binning['bin_iv'].sum()
+        def _extract_breaks(x):
+            gp23 = _pattern.match(x)
+            breaks_string = x if gp23 is None else gp23.group(2)
+            return breaks_string
         
-        # 提取切分点：保持与 legacy 行为一致，从 "[a,b)" 区间提取右端点 b，
-        # 其他情况直接使用 bin_chr 本身。
-        pattern = re.compile(r"^\[(.*), *(.*)\)")
-        binning['breaks'] = binning['bin_chr'].apply(
-            lambda x: pattern.match(str(x)).group(2)
-            if pattern.match(str(x)) else x
-        )
-        try:
-            binning['breaks'] = pd.to_numeric(binning['breaks'])
-        except (ValueError, TypeError):
-            pass
+        # 与 legacy 保持一致的链式计算
+        binning = binning.assign(
+            count=lambda x: x['good'] + x['bad'],
+            bad_dist=lambda x: sub0(x['bad']) / sub0(x['bad']).sum(),
+            good_dist=lambda x: sub0(x['good']) / sub0(x['good']).sum()
+        ).assign(
+            count_distr=lambda x: x['count'] / x['count'].sum(),
+            badprob=lambda x: x['bad'] / x['count'],
+            woe=lambda x: np.log(x['good_dist'] / x['bad_dist'])
+        ).assign(
+            lift=lambda x: x['badprob'] / (x['bad'].sum() / x['count'].sum()),
+            bin_iv=lambda x: (x['good_dist'] - x['bad_dist']) * x['woe']
+        ).assign(total_iv=lambda x: x['bin_iv'].sum())
         
-        # 添加 bin 列以保持向后兼容性
-        binning['bin'] = binning['bin_chr'].astype(str)
+        binning['breaks'] = binning['bin_chr'].apply(_extract_breaks)
+        binning['is_special_values'] = binning['is_sv']
+        binning['bin'] = binning['bin_chr'].astype('str')
         
-        # 重排和选择列
-        col_order = [
-            'variable', 'bin', 'count', 'count_distr', 'good', 'bad',
-            'badprob', 'lift', 'woe', 'bin_iv', 'total_iv', 'breaks',
-            'is_special_values'
-        ]
-        
-        return binning[col_order]
+        return binning[[
+            'variable', 'bin', 'count', 'count_distr', 'good', 'bad', 'badprob',
+            'lift', 'woe', 'bin_iv', 'total_iv', 'breaks', 'is_special_values'
+        ]]
 
 
 class InitBin(WOEBin):
@@ -443,7 +444,7 @@ class InitBin(WOEBin):
         """
         import re
         
-        bins = pd.cut(dtm['value'], breaks, right=False, include_lowest=True)
+        bins = pd.cut(dtm['value'], breaks, right=False)
         bin_sample_count = bins.value_counts()
         
         if np.any(bin_sample_count == 0):
@@ -462,36 +463,29 @@ class InitBin(WOEBin):
 class OptimBinMixin:
     """粗分箱 Mixin
     
-    提供分箱合并的通用方法
+    提供 initial_binning 方法，根据细分箱切分点生成分箱统计表
     """
     
-    def merge_binning(self, binning: pd.DataFrame, node_ids: np.ndarray) -> pd.DataFrame:
-        """根据节点 ID 合并分箱
+    def initial_binning(self, dtm, breaks):
+        """根据细分箱切分点生成分箱统计表
         
         参数:
-            binning: 分箱统计 DataFrame
-            node_ids: 节点 ID 数组
+            dtm: 输入数据
+            breaks: 细分箱切分点
         
         返回:
-            合并后的 DataFrame
+            分箱统计 DataFrame
         """
-        binning = binning.copy()
-        binning['node_id'] = node_ids
+        binning = self.binning_breaks(dtm, breaks)
+        binning['count'] = binning['good'] + binning['bad']
+        binning['count_distr'] = binning['count'] / binning['count'].sum()
         
-        merged = binning.groupby('node_id').agg({
-            'good': 'sum',
-            'bad': 'sum',
-            'variable': 'first'
-        }).reset_index()
+        if not is_numeric_dtype(dtm['value']):
+            binning['badprob'] = binning['bad'] / binning['count']
+            binning = binning.sort_values(
+                by='badprob', ascending=False).reset_index(drop=True)
         
-        # 合并分箱名
-        bin_names = binning.groupby('node_id')['bin_chr'].apply(
-            lambda x: '%,%'.join(x.astype(str))
-        )
-        merged['bin_chr'] = bin_names
-        merged['is_special_values'] = False
-        
-        return merged[['variable', 'bin_chr', 'good', 'bad', 'is_special_values']]
+        return binning
 
 
 class ComposedWOEBin(WOEBin):
