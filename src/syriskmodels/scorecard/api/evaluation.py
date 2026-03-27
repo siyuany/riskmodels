@@ -88,12 +88,12 @@ def _plot_single_bin(binx: pd.DataFrame, title: Optional[str], show_iv: bool):
     if y_right_max - binx['badprob'].max() * 10 <= 0.3:
         y_right_max = y_right_max + 2
     y_right_max = y_right_max / 10
-    if (y_right_max > 1 or y_right_max <= 0 or y_right_max is np.nan or
+    if (y_right_max > 1 or y_right_max <= 0 or pd.isna(y_right_max) or
             y_right_max is None):
         y_right_max = 1
 
     y_left_max = np.ceil(binx['count_distr'].max() * 10) / 10
-    if (y_left_max > 1 or y_left_max <= 0 or y_left_max is np.nan or
+    if (y_left_max > 1 or y_left_max <= 0 or pd.isna(y_left_max) or
             y_left_max is None):
         y_left_max = 1
 
