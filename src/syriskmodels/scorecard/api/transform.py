@@ -23,26 +23,35 @@ def woebin_ply(
     replace_blank: bool = False,
     value: str = 'woe'
 ) -> pd.DataFrame:
-    """应用 WOE 分箱结果
-    
-    将 woebin 函数返回的分箱结果应用到数据集，将原始值转换为 WOE 值或其他形式。
-    
+    """应用 WOE 分箱结果转换数据
+
+    将 ``woebin()`` 返回的分箱结果应用到数据集，将原始值转换为 WOE 值、
+    分箱索引或分箱区间。转换后的列名带有后缀 ``_woe``、``_index`` 或 ``_bin``。
+
     参数:
-        dt: 包含变量原始值的数据框
-        bins: woebin 分箱结果
-        no_cores: 多进程数量
-        replace_blank: 是否将空字符串 '' 替换为 np.nan
-        value: 返回值类别，可选 ['woe', 'index', 'bin']
-            - 'woe': 将原始值替换为 WOE 值
-            - 'index': 将原始值替换为分箱索引 (0, 1, 2,...)
-            - 'bin': 返回分箱区间 [a,b) 或 a%,%b
-    
+        dt: 包含变量原始值的数据框，列名需与分箱结果中的变量名一致
+        bins: ``woebin()`` 返回的分箱结果字典
+        no_cores: 多进程数量，None 时自动检测
+        replace_blank: 是否将空字符串 ``''`` 替换为 ``np.nan``
+        value: 返回值类型，可选 ``['woe', 'index', 'bin']``
+
+            - ``'woe'``: 将原始值替换为 WOE 值，列名为 ``变量名_woe``
+            - ``'index'``: 将原始值替换为分箱索引 (0, 1, 2,...)，列名为 ``变量名_index``
+            - ``'bin'``: 返回分箱区间文本，数值型为 ``[a,b)``，类别型为 ``a%,%b``，
+              列名为 ``变量名_bin``
+
     返回:
-        pd.DataFrame，包含入参数据框中未替换的所有列，和替换后的变量列
-    
+        pd.DataFrame，包含:
+
+        - 入参 dt 中**不在** bins 中的原始列（保持不变）
+        - bins 中匹配到的变量，按 ``value`` 参数转换后的新列
+
     示例:
-        >>> bins = woebin(df, y='target')
-        >>> df_woe = woebin_ply(df, bins, value='woe')
+        >>> bins = woebin(train_df, y='target')
+        >>> train_woe = woebin_ply(train_df, bins, value='woe')
+        >>> train_woe.columns  # 原始列被替换为 age_woe, income_woe 等
+        >>> train_bin = woebin_ply(train_df, bins, value='bin')
+        >>> train_bin['age_bin'].head()  # 输出: [-inf,25), [25,35), ...
     """
     # start time
     start_time = time.time()

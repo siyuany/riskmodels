@@ -1,0 +1,10 @@
+*.egg-info/
+__pycache__/
+dist/
+build/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.xlsx
+!docs/**/*.xlsx
