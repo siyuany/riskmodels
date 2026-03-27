@@ -51,7 +51,7 @@ def get_data_dir() -> Path:
     """返回内置数据集目录路径"""
 ```
 
-数据文件位置不变（`data/` 目录），通过包内相对路径定位。
+数据文件位置不变（`data/` 目录），通过 `Path(__file__).resolve().parent.parent.parent / 'data'` 定位（从 `src/syriskmodels/datasets.py` 向上三级到仓库根目录的 `data/`）。
 
 ### 1.2 BUG 修复（`contrib/build_scorecard.py`）
 
@@ -285,13 +285,14 @@ scorecard = make_scorecard(bins, model.params.to_dict(),
 ```python
 from syriskmodels.evaluate import model_eval, gains_table
 
-all_X = woebin_ply(df[原始特征列], bins)[selected_woe]
+selected_raw = [v[:-4] for v in selected_woe]  # 去掉 _woe 后缀得到原始变量名
+all_X = woebin_ply(df[selected_raw], bins)[selected_woe]
 all_X = sm.add_constant(all_X)
 df['prob'] = model.predict(all_X)
 
 perf = df.groupby('dataset_flag').apply(model_eval, target=target, pred='prob')
 
-gt, breaks = gains_table(train_y, train_scores, return_breaks=True)
+gt, breaks = gains_table(train_df[target], train_df['score'], return_breaks=True)
 ```
 
 #### Phase 8: 稳定性分析（PSI）
@@ -301,6 +302,23 @@ gt, breaks = gains_table(train_y, train_scores, return_breaks=True)
 **关键 API：**
 - `syriskmodels.scorecard.woebin_psi()` — 变量 PSI
 - `syriskmodels.evaluate.psi()` — 分布 PSI
+
+**代码模板：**
+```python
+from syriskmodels.scorecard import woebin_psi
+from syriskmodels.evaluate import psi
+
+var_psi = woebin_psi(
+    train_df, oot_df,
+    bins={k: v for k, v in bins.items() if k + '_woe' in selected_woe})
+
+model_psi = pd.DataFrame({
+    'variable': 'model_score',
+    'bin': train_gains_table.index,
+    'base_distr': train_gains_table['TotalPercent'],
+    'cmp_distr': oot_gains_table['TotalPercent']
+}).assign(psi=lambda x: psi(x['base_distr'], x['cmp_distr']))
+```
 
 #### Phase 9: 输出模型文档
 
