@@ -24,7 +24,7 @@ class LogisticRegressionCV(object):
     valid_predicted = None
     valid_actual = None
 
-    cv_wrapper = check_cv(self._cv, y=y, is_classifier=True)
+    cv_wrapper = check_cv(self._cv, y=y, classifier=True)
 
     for train_index, test_index in cv_wrapper.split(X, y):
       X_train, X_valid = X[train_index], X[test_index]
@@ -73,6 +73,39 @@ def stepwise_lr(df: pd.DataFrame,
                 initial_features: Union[str, List[str]] = None,
                 direction: str = 'bidirectional',
                 **lr_kwargs):
+  """双向逐步逻辑回归特征选择
+
+  通过前向选择和/或后向消除的交叉验证策略，从候选特征中选择最优特征子集。
+  每一步通过 ``LogisticRegressionCV`` 交叉验证评估特征组合的性能
+  （指标为 min(train_auc, valid_auc) - |train_auc - valid_auc|），
+  选择使指标最优的特征组合。
+
+  参数:
+    df: 包含特征列和目标列的数据框。**必须包含 y 对应的列**。
+    y: 目标变量列名（字符串），df 中必须存在该列
+    x: 候选特征列名列表
+    cv: 交叉验证折数，默认 3。也可传入自定义 CV splitter（如 generator）
+    max_num_features: 最大入选特征数量，默认 30
+    initial_features: 初始特征列表（强制入选），默认 None
+    direction: 搜索方向，可选 ``'forward'``、``'backward'``、``'bidirectional'``，
+      默认 ``'bidirectional'``
+    **lr_kwargs: 传递给 ``sklearn.linear_model.LogisticRegression`` 的参数
+
+  返回:
+    Tuple[float, List[str]]:
+
+    - ``best_metrics`` (float): 最优评估指标值
+    - ``selected_features`` (List[str]): 被选中的特征列名列表
+
+  示例:
+    >>> from syriskmodels.models import stepwise_lr
+    >>> from syriskmodels.scorecard import woebin_ply
+    >>> train_woe = woebin_ply(train_df[features], bins, value='woe')
+    >>> train_woe['target'] = train_df['target']  # 必须包含 target 列
+    >>> best_auc, selected = stepwise_lr(
+    ...     train_woe, y='target',
+    ...     x=[f + '_woe' for f in features], cv=3)
+  """
   feature_pool = x
   if initial_features is None:
     selected_features = []
