@@ -72,8 +72,40 @@ train_df = df.sample(frac=0.7, random_state=42)
 oot_df = df.drop(train_df.index)
 ```
 
+**极度不平衡数据的分层采样（推荐）：**
+
+当坏样本率极低（如 < 1%）时，**必须使用分层采样**确保训练集和 OOT 集都包含足够正样本：
+
+```python
+# 分层采样：确保训练集和 OOT 集都有正样本
+train_bad = df[df[target] == 1].sample(frac=0.7, random_state=42)
+train_good = df[df[target] == 0].sample(frac=0.7, random_state=42)
+train_df = pd.concat([train_bad, train_good], ignore_index=True)
+
+oot_bad = df[df[target] == 1].drop(train_bad.index)
+oot_good = df[df[target] == 0].drop(train_good.index)
+oot_df = pd.concat([oot_bad, oot_good], ignore_index=True)
+
+print(f'训练集坏样本: {(train_df[target]==1).sum()}, OOT坏样本: {(oot_df[target]==1).sum()}')
+```
+
+**大数据量采样策略：**
+
+当数据量过大（如 > 10 万行）影响处理速度时，可采用以下策略：
+- **保留全部正样本**：避免信息损失
+- **对负样本采样**：如采样 20%-50%
+- 确保采样后数据仍具代表性
+
+```python
+# 示例：保留全部欺诈样本，对正常样本采样 20%
+df_bad = df_full[df_full[target] == 1]
+df_good = df_full[df_full[target] == 0].sample(frac=0.2, random_state=42)
+df = pd.concat([df_bad, df_good], ignore_index=True)
+```
+
 **注意事项：**
 - 目标变量必须是 0/1 二分类，1 代表坏样本
+- **必须设置随机数种子**：所有涉及随机数的操作（采样、划分数据集、逐步回归等）都应设置 `random_state` 参数，确保结果可复现
 - **必须识别并排除非特征列**，包括但不限于：
   - ID 列（客户编号、申请编号等）
   - 时间列（申请日期、放款日期等）
@@ -81,6 +113,7 @@ oot_df = df.drop(train_df.index)
   - 其他业务标记列（样本标签、分组标记等）
 - **必须列出识别到的可疑非特征列，与用户确认后再确定最终特征列表**
 - 如用户提供了自己的数据，优先使用用户数据
+- **极度不平衡数据必须分层采样**，否则 OOT 集可能无正样本导致评估失败
 
 ### Phase 2: WOE 分箱
 
@@ -109,6 +142,19 @@ woe_df, iv_df = sc_bins_to_df(bins)
 - `special_values` 处理特殊值（如 -999、-1 等缺失标记）
 - `ensure_monotonic=True` 可强制单调性（仅树分箱支持）
 - 常见 methods 组合见 `api-reference.md`
+- **多进程分箱要求**：`woebin` 默认使用多进程，脚本必须使用 `if __name__ == '__main__'` 保护入口，否则在 macOS/Windows 上会无限递归或报错
+
+**多进程安全的脚本结构：**
+
+```python
+def main():
+    # 所有业务逻辑放这里
+    bins = woebin(train_df, y=target, x=features, ...)
+    # ...
+
+if __name__ == '__main__':
+    main()
+```
 
 ### Phase 3: 特征筛选（IV + 风险趋势一致性）
 
@@ -364,6 +410,10 @@ with ExcelWriter('scorecard_report.xlsx') as writer:
 | methods 列表首元素为监督方法 | 首元素必须是 `'quantile'` 或 `'hist'`（无监督细分箱） |
 | 直接用 train 的 breaks 比较 OOT Gains Table | 需将 breaks 首尾设为 `-np.inf` / `np.inf` |
 | 将 ID 列/时间列当作特征 | 必须识别并排除非特征列，与用户确认 |
+| 极度不平衡数据简单随机采样 | 使用分层采样确保训练集/OOT 集都有正样本 |
+| 脚本顶层调用 woebin（无 main 保护） | 使用 `if __name__ == '__main__'` 保护入口，避免多进程递归 |
+| OOT 集无正样本导致 risk_trends_consistency 失败 | 分层采样时验证 OOT 正样本数 > 0 |
+| 采样/划分数据未设置随机数种子 | 设置 `random_state=42` 等固定值，确保结果可复现 |
 
 ## See Also
 
