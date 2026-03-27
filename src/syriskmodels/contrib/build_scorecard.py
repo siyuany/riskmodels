@@ -146,7 +146,7 @@ def build_scorecard(sample_df,
 
     _, selected_variables = stepwise_lr(
         train_X,
-        train_y.values,
+        train_y.to_numpy(),
         cv=(lambda: group_split_cv(train_df[cv]))
         if isinstance(cv, str) else cv,
         x=[f + '_woe' for f in selected_variables],

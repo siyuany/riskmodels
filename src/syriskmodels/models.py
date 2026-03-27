@@ -89,7 +89,7 @@ def stepwise_lr(df: pd.DataFrame,
 
   def get_features_perf(feature_list):
     lr_cv = LogisticRegressionCV(cv=cv, **lr_kwargs)
-    auc = lr_cv.fit_and_eval(df[feature_list].values, df[y])
+    auc = lr_cv.fit_and_eval(df[feature_list].to_numpy(), df[y])
     return auc
 
   step = 0
