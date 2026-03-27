@@ -3,7 +3,13 @@
 数据集加载模块
 
 提供类似 sklearn.datasets 的便捷数据加载接口，用于快速访问内置演示数据集。
+
+数据文件路径优先级：
+1. 环境变量 SYRISKMODELS_DATA_DIR
+2. 当前工作目录下的 data/ 目录
+3. 仓库根目录下的 data/ 目录（开发模式）
 """
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -12,16 +18,33 @@ import pandas as pd
 def get_data_dir() -> Path:
     """返回内置数据集目录路径
 
+    数据目录查找优先级：
+    1. 环境变量 SYRISKMODELS_DATA_DIR
+    2. 当前工作目录下的 data/ 目录
+    3. 仓库根目录下的 data/ 目录（开发模式）
+
     Returns:
-        Path: 数据目录的绝对路径，即仓库根目录下的 ``data/`` 目录。
+        Path: 数据目录的绝对路径。
 
     Example:
         >>> from syriskmodels.datasets import get_data_dir
         >>> data_dir = get_data_dir()
         >>> list(data_dir.glob('*.csv.gz'))
-        [PosixPath('.../data/creditcard.csv.gz'), PosixPath('.../data/germancredit.csv.gz')]
+        [PosixPath('.../data/creditcard.csv.gz'), ...]
     """
-    return Path(__file__).resolve().parent.parent.parent / 'data'
+    env_dir = os.environ.get('SYRISKMODELS_DATA_DIR')
+    if env_dir:
+        return Path(env_dir).resolve()
+    
+    cwd_data = Path.cwd() / 'data'
+    if cwd_data.exists():
+        return cwd_data
+    
+    dev_data = Path(__file__).resolve().parent.parent.parent / 'data'
+    if dev_data.exists():
+        return dev_data
+    
+    return cwd_data
 
 
 def load_germancredit() -> pd.DataFrame:
