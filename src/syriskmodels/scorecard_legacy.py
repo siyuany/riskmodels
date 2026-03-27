@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import numba as nb
 import numpy as np
 import pandas as pd
-from pandas.core.dtypes.common import is_numeric_dtype
+from pandas.api.types import is_numeric_dtype
 from scipy.stats import chi2
 from scipy.stats import chi2_contingency
 from scipy.stats import fisher_exact
