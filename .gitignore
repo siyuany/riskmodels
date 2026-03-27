@@ -8,3 +8,12 @@ build/
 htmlcov/
 *.xlsx
 !docs/**/*.xlsx
+.vscode/
+.idea/
+.DS_Store
+docs/
+.sisyphus/
+pytest.ini
+meta/
+*.bak
+test/*.csv.gz
