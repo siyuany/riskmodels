@@ -56,7 +56,7 @@ def woebin_psi(
         tmp.columns = ['base', 'cmp']
         tmp['variable'] = variable[:-4]
         tmp['bin'] = tmp.index
-        tmp.reset_index(drop=True, inplace=True)
+        tmp = tmp.reset_index(drop=True)
 
         tmp = tmp.assign(
             base_distr=lambda x: x['base'] / x['base'].sum(),

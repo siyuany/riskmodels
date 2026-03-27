@@ -471,10 +471,10 @@ class WOEBin(object):
       dtm_ns = dtm.copy()
 
     if dtm_sv is not None:
-      dtm_sv.set_index(dtm_sv['idx'], drop=True, inplace=True)
+      dtm_sv = dtm_sv.set_index(dtm_sv['idx'], drop=True)
 
     if dtm_ns is not None:
-      dtm_ns.set_index(dtm_ns['idx'], drop=True, inplace=True)
+      dtm_ns = dtm_ns.set_index(dtm_ns['idx'], drop=True)
 
     return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
 
@@ -625,10 +625,10 @@ class WOEBin(object):
     bin_res['index'] = bin_res.index
     bin_res['bin_chr'] = bin_res['bin']
     dtm = pd.merge(dtm, bin_res[['bin_chr', value]], on='bin_chr', how='left')
-    dtm.set_index(dtm['idx'], drop=True, inplace=True)
+    dtm = dtm.set_index(dtm['idx'], drop=True)
     variable = dtm['variable'].iloc[0]
     feature_name = '_'.join([variable, value])
-    dtm.rename(columns={value: feature_name}, inplace=True)
+    dtm = dtm.rename(columns={value: feature_name})
     return dtm[feature_name]
 
   def binning_breaks(self, dtm, breaks):
@@ -1451,7 +1451,7 @@ def sc_bins_to_df(sc_bins):
     return None, None
   else:
     iv_df = woe_df.groupby(by='variable').apply(iv_stats)
-    iv_df.sort_values(by='IV', ascending=False, inplace=True)
+    iv_df = iv_df.sort_values(by='IV', ascending=False)
     return woe_df, iv_df
 
 
@@ -1560,7 +1560,7 @@ def woebin_psi(df_base, df_cmp, bins):
     psi_df.columns = ['base', 'cmp']
     psi_df['variable'] = variable[:-4]
     psi_df['bin'] = psi_df.index
-    psi_df.reset_index(drop=True, inplace=True)
+    psi_df = psi_df.reset_index(drop=True)
 
     psi_df = psi_df.assign(
         base_distr=lambda x: x['base'] / x['base'].sum(),
