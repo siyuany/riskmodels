@@ -9,10 +9,6 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from addpath import addpath
-
-addpath()
-
 from syriskmodels.scorecard import (
     WOEBinFactory,
     WOEBin,

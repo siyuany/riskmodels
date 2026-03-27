@@ -3,13 +3,7 @@ import numpy as np
 import pandas as pd
 import unittest
 
-from addpath import addpath
-
-try:
-    addpath()
-    from syriskmodels.detector import detect
-except ModuleNotFoundError as e:
-    raise e
+from syriskmodels.detector import detect
 
 
 class TestDetect(unittest.TestCase):
