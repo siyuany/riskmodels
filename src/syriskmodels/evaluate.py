@@ -50,6 +50,31 @@ def model_perf(y_true, y_pred) -> Dict[str, float]:
 
 
 def model_eval(df, target, pred) -> pd.Series:
+    """评估模型的 AUC、KS 和坏样本率
+
+    对数据框中的目标变量和预测概率计算模型性能指标。常与 ``groupby().apply()``
+    配合使用，按不同维度评估模型表现。
+
+    参数:
+        df: 包含目标变量和预测值的数据框
+        target: 目标变量列名（0/1 二分类）
+        pred: 预测概率列名
+
+    返回:
+        pd.Series，包含三个指标:
+
+        - ``bad_rate`` (float): 坏样本率
+        - ``auc`` (float): AUC 值，始终 >= 0.5
+        - ``ks`` (float): KS 统计量
+
+    示例:
+        >>> perf = df.groupby('dataset').apply(model_eval, target='y', pred='prob')
+        >>> perf
+                  bad_rate    auc      ks
+        train     0.035    0.891  0.632
+        test      0.038    0.875  0.618
+        oot       0.042    0.862  0.601
+    """
     perf = model_perf(df[target], df[pred])
     auc = perf['auc']
     ks = perf['ks']
@@ -80,7 +105,23 @@ def gains_table(
 
     Returns:
         当 return_breaks=False 时，返回 gains_table (pd.DataFrame)；否则，返回
-        元组 (gains_table, breaks)
+        元组 (gains_table, breaks)。
+
+        gains_table 的 DataFrame 包含以下列:
+
+        - ``TotalCnt``: 该分段总样本数
+        - ``GoodCnt``: 好样本数
+        - ``BadCnt``: 坏样本数
+        - ``Odds``: 好坏比 (GoodCnt / BadCnt)
+        - ``BadRate``: 坏样本率
+        - ``Lift``: 提升度（该段坏率 / 整体坏率）
+        - ``CumBadRate``: 累计坏样本率
+        - ``BadPercent``: 坏样本占比
+        - ``CumBadPercent``: 累计坏样本占比
+        - ``GoodPercent``: 好样本占比
+        - ``CumGoodPercent``: 累计好样本占比
+        - ``KS``: KS 值 (|CumBadPercent - CumGoodPercent|)
+        - ``TotalPercent``: 该段样本占总体比例
 
     """
     if split is not None and breaks is not None:

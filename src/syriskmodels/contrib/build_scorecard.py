@@ -143,10 +143,11 @@ def build_scorecard(sample_df,
     # 4.逐步回归
     train_X = woebin_ply(train_df[selected_variables], bins, value='woe')
     train_y = train_df[target]
+    train_X[target] = train_y
 
     _, selected_variables = stepwise_lr(
         train_X,
-        train_y.to_numpy(),
+        target,
         cv=(lambda: group_split_cv(train_df[cv]))
         if isinstance(cv, str) else cv,
         x=[f + '_woe' for f in selected_variables],
@@ -161,9 +162,12 @@ def build_scorecard(sample_df,
         lr_model = sm.GLM(endog=train_y, exog=X, family=sm.families.Binomial())
         lr_model_result = lr_model.fit()
 
-        if np.any(lr_model_result.params > 0) or np.any(
-                lr_model_result.pvalues > regression_p_limit):
-            t_values = lr_model_result.tvalues
+        # 排除截距项(const)检查系数方向和p值
+        coef_params = lr_model_result.params.iloc[1:]
+        coef_pvalues = lr_model_result.pvalues.iloc[1:]
+        if np.any(coef_params > 0) or np.any(
+                coef_pvalues > regression_p_limit):
+            t_values = lr_model_result.tvalues.iloc[1:]
             rm_var = t_values.index[t_values == t_values.max()].item()
             selected_variables.remove(rm_var)
         else:
@@ -180,8 +184,9 @@ def build_scorecard(sample_df,
 
     # 计算VIF
     vif = {}
+    X_arr = X.to_numpy()
     for idx, feature in enumerate(X.columns[1:].tolist()):
-        vif[feature] = variance_inflation_factor(train_X, idx)
+        vif[feature] = variance_inflation_factor(X_arr, idx + 1)
     vif = pd.Series(vif).rename('VIF').to_frame()
     vif = vif.loc[selected_variables,]
     print(vif)

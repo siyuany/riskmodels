@@ -81,23 +81,40 @@ def make_scorecard(
     base_odds: int = 50,
     pdo: int = 20
 ) -> pd.DataFrame:
-    """生成评分卡
-    
+    """将逻辑回归系数转换为评分卡
+
+    基于分箱结果和逻辑回归系数，按照标准评分卡公式将 WOE 值转换为分数。
+    公式: ``score_i = -(pdo/ln2) * coef_i * woe_i``，
+    基础分: ``base_score = -(pdo/ln2) * intercept + (base_points - (pdo/ln2) * ln(base_odds))``
+
     参数:
-        sc_bins: woebin 返回的分箱结果
-        coef: 逻辑回归系数字典
-        base_points: 基准分数，默认 600
-        base_odds: 基准 odds，默认 50
-        pdo: 翻倍 odds 的分数增量，默认 20
-    
+        sc_bins: ``woebin()`` 返回的分箱结果字典
+        coef: 逻辑回归系数字典，格式为
+            ``{'const': 截距值, '变量名_woe': 系数值, ...}``。
+            通常由 ``statsmodels.GLM.fit().params.to_dict()`` 获得。
+            key 中的变量名需与 ``sc_bins`` 中的变量名对应（去掉 ``_woe`` 后缀匹配）。
+        base_points: 基准分数，默认 600。当 odds 等于 ``base_odds`` 时的分数。
+        base_odds: 基准 odds (好/坏比例)，默认 50
+        pdo: odds 翻倍时的分数增量 (Points to Double the Odds)，默认 20
+
     返回:
-        评分卡 DataFrame，包含 variable, bin, woe, score 列
-    
+        pd.DataFrame，包含以下列:
+
+        - ``variable``: 变量名（首行为 ``'base score'``）
+        - ``bin``: 分箱区间
+        - ``woe``: WOE 值
+        - ``score``: 该分箱对应的分数
+
     示例:
-        >>> bins = woebin(df, y='target')
-        >>> model = LogisticRegression().fit(X, y)
-        >>> coef = {'const': -2.5, 'age_woe': 0.5, 'income_woe': 0.3}
-        >>> scorecard = make_scorecard(bins, coef)
+        >>> import statsmodels.api as sm
+        >>> X = sm.add_constant(train_woe[selected_vars])
+        >>> model = sm.GLM(y, X, family=sm.families.Binomial()).fit()
+        >>> scorecard = make_scorecard(bins, model.params.to_dict(),
+        ...                            base_points=600, base_odds=50, pdo=20)
+        >>> scorecard.head()
+          variable       bin   woe  score
+        0  base score              452.31
+        1         age  [-inf,25)  0.85  -12.34
     """
     a = pdo / np.log(2)
     b = base_points - a * np.log(base_odds)
