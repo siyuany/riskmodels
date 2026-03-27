@@ -136,10 +136,10 @@ class WOEBin(ABC):
             dtm_ns = dtm.copy()
         
         if dtm_sv is not None:
-            dtm_sv.set_index(dtm_sv['idx'], drop=True, inplace=True)
+            dtm_sv = dtm_sv.set_index(dtm_sv['idx'], drop=True)
         
         if dtm_ns is not None:
-            dtm_ns.set_index(dtm_ns['idx'], drop=True, inplace=True)
+            dtm_ns = dtm_ns.set_index(dtm_ns['idx'], drop=True)
         
         return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
     
@@ -335,11 +335,11 @@ class WOEBin(ABC):
         bin_res['index'] = bin_res.index
         bin_res['bin_chr'] = bin_res['bin']
         dtm = pd.merge(dtm, bin_res[['bin_chr', value]], on='bin_chr', how='left')
-        dtm.set_index(dtm['idx'], drop=True, inplace=True)
+        dtm = dtm.set_index(dtm['idx'], drop=True)
 
         variable = dtm['variable'].iloc[0]
         feature_name = '_'.join([variable, value])
-        dtm.rename(columns={value: feature_name}, inplace=True)
+        dtm = dtm.rename(columns={value: feature_name})
 
         return dtm[feature_name]
     

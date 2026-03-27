@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from pandas.io.excel import ExcelWriter
+from pandas import ExcelWriter
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from syriskmodels.contrib.var_select import risk_trends_consistency
@@ -146,7 +146,7 @@ def build_scorecard(sample_df,
 
     _, selected_variables = stepwise_lr(
         train_X,
-        train_y.values,
+        train_y.to_numpy(),
         cv=(lambda: group_split_cv(train_df[cv]))
         if isinstance(cv, str) else cv,
         x=[f + '_woe' for f in selected_variables],

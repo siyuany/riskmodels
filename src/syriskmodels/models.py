@@ -24,7 +24,7 @@ class LogisticRegressionCV(object):
     valid_predicted = None
     valid_actual = None
 
-    cv_wrapper = check_cv(self._cv, y=y, classifier=True)
+    cv_wrapper = check_cv(self._cv, y=y, is_classifier=True)
 
     for train_index, test_index in cv_wrapper.split(X, y):
       X_train, X_valid = X[train_index], X[test_index]
@@ -89,7 +89,7 @@ def stepwise_lr(df: pd.DataFrame,
 
   def get_features_perf(feature_list):
     lr_cv = LogisticRegressionCV(cv=cv, **lr_kwargs)
-    auc = lr_cv.fit_and_eval(df[feature_list].values, df[y])
+    auc = lr_cv.fit_and_eval(df[feature_list].to_numpy(), df[y])
     return auc
 
   step = 0

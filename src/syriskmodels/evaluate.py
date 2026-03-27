@@ -265,7 +265,7 @@ def swap_analysis_simple(df,
         values=target_col,
         aggfunc='sum')
     bad_rate2 = bad_cnt2 / total_cnt2
-    swap_result = pd.concat([total_cnt2 / np.sum(total_cnt2.values), bad_rate2],
+    swap_result = pd.concat([total_cnt2 / np.sum(total_cnt2.to_numpy()), bad_rate2],
                             axis=1)
     swap_result.columns = [['total%', 'total%', 'bad_rate', 'bad_rate'],
                            swap_result.columns.tolist()]

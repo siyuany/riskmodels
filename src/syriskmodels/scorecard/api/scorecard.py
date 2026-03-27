@@ -69,7 +69,7 @@ def sc_bins_to_df(
         return None, None
     else:
         iv_df = woe_df.groupby(by='variable').apply(iv_stats)
-        iv_df.sort_values(by='IV', ascending=False, inplace=True)
+        iv_df = iv_df.sort_values(by='IV', ascending=False)
         return woe_df, iv_df
 
 

@@ -58,7 +58,7 @@ def getDescribe(series, percentiles=None):
   if len(valid) == 0:
     idx = ['mean', 'std', 'min'] + [f'{int(p*100)}%' for p in percentiles] + ['max']
     return pd.Series(index=idx, data=[np.nan] * len(idx))
-  arr = valid.values.astype(float)
+  arr = valid.to_numpy().astype(float)
   n = len(arr)
   mean = float(np.mean(arr))
   std = float(np.std(arr)) if n > 1 else 0.0
