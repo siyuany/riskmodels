@@ -28,6 +28,9 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         p: 独立性检验显著性，默认 0.05
         count_distr_limit: 最小分箱样本占比，默认 0.02
         ensure_monotonic: 是否要求单调，默认 False（暂不支持）
+        engine: 计算后端 ``'auto'`` | ``'numpy'`` | ``'numba'``（W2 Phase 7），
+            默认 ``'auto'``（按问题规模选择；numba 不可用自动回退）。
+            两种后端输出**逐位一致**（差分测试保证）。
     """
 
     def __init__(self,
@@ -35,12 +38,14 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
                  p: float = 0.05,
                  count_distr_limit: float = 0.02,
                  ensure_monotonic: bool = False,
+                 engine: str = 'auto',
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.p = p
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
+        self.engine = engine
         self.chi2_limit = chi2.isf(p, df=1)
 
     @staticmethod
@@ -68,80 +73,60 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         return binning
 
     def woebin(self, dtm, breaks=None):
-        """执行 ChiMerge 分箱"""
+        """执行 ChiMerge 分箱。
+
+        W2 Phase 4：合并循环改为 NumPy 精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.chi2_merge_search` +
+        :func:`~syriskmodels.scorecard.core.kernels.chi2_pair_stats`），
+        与 legacy pandas 实现（保留在 ``chi2_stat`` 及
+        test/test_binning_equivalence.py 的参考拷贝中）在 χ² 公式
+        （scipy Yates 修正闭式复刻）、三分支决策优先级、idx 修正规则、
+        tie-breaking（取最小索引）、count_distr 标量增量维护、
+        最终 breaks 提取等全部语义上逐位一致。
+        """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """ChiMerge 内核入口（W2 Phase 6），返回 ``(breaks, 计数表, 段边界)``。"""
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
+        from syriskmodels.scorecard.core.kernels import (
+            chi2_merge_search,
+            resolve_engine,
+            segments_to_breaks,
+        )
 
-        binning = self.initial_binning(dtm, breaks)
-        binning_chi2 = self.chi2_stat(binning)
-        binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
+        table = self.initial_count_table(dtm, breaks, parent=parent)
+        count = table.count
+        # 与 legacy initial_binning 的 count_distr 列逐位一致
+        ratios = count / count.sum()
 
-        # Start merge loop
-        while True:
-            min_chi2 = binning_chi2['chi2'].min()
-            min_count_distr = binning_chi2['count_distr'].min()
-            n_bins = len(binning_chi2)
-
-            if min_chi2 < self.chi2_limit:
-                # 分箱坏占比差异不显著
-                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
-            elif min_count_distr < self.count_distr_limit:
-                # 分箱占比过少
-                idx = binning_chi2[
-                    binning_chi2['count_distr'] == min_count_distr
-                ].index[0]
-                if idx == 0 or (idx < len(binning_chi2) - 1 and
-                               (binning_chi2['chi2'][idx]
-                                > binning_chi2['chi2'][idx + 1])):
-                    idx = idx + 1
-            elif n_bins > self.bin_num_limit:
-                # 分箱数太多
-                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
-            else:
-                # 结束合并操作
-                break
-
-            # 合并分箱
-            binning_chi2.loc[idx - 1, 'bin_chr'] = '%,%'.join([
-                binning_chi2.loc[idx - 1, 'bin_chr'],
-                binning_chi2.loc[idx, 'bin_chr']
-            ])
-            binning_chi2.loc[idx - 1, 'count'] = (
-                binning_chi2.loc[idx - 1, 'count'] +
-                binning_chi2.loc[idx, 'count'])
-            binning_chi2.loc[idx - 1, 'count_distr'] = (
-                binning_chi2.loc[idx - 1, 'count_distr'] +
-                binning_chi2.loc[idx, 'count_distr'])
-            binning_chi2.loc[idx - 1, 'good'] = (
-                binning_chi2.loc[idx - 1, 'good'] +
-                binning_chi2.loc[idx, 'good'])
-            binning_chi2.loc[idx - 1, 'bad'] = (
-                binning_chi2.loc[idx - 1, 'bad'] +
-                binning_chi2.loc[idx, 'bad'])
-
-            if is_numeric_dtype(dtm['value']):
-                # 数值类型分箱合并: [a,b)%,%[b,c) -> [a,c)
-                binning_chi2['bin_chr'] = binning_chi2['bin_chr'].apply(
-                    lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-
-            index = binning_chi2.index.tolist()
-            index.remove(idx)
-            binning_chi2 = binning_chi2.iloc[
-                index,
-            ].reset_index(drop=True)
-            binning_chi2 = self.chi2_stat(binning_chi2)
-        # End of loop
-
-        # 切分点提取
-        if is_numeric_dtype(dtm['value']):
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = binning_chi2['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
+        engine = resolve_engine(self.engine, table.n_bins, len(dtm))
+        if engine == 'numba':
+            from syriskmodels.scorecard.core.kernels_numba import (
+                chi2_merge_search_numba,
+            )
+            seg_bounds = chi2_merge_search_numba(
+                table.good, table.bad, ratios,
+                chi2_limit=self.chi2_limit,
+                count_distr_limit=self.count_distr_limit,
+                bin_num_limit=self.bin_num_limit,
+            )
         else:
-            breaks = binning_chi2['bin_chr']
+            seg_bounds = chi2_merge_search(
+                table.good,
+                table.bad,
+                ratios,
+                chi2_limit=self.chi2_limit,
+                count_distr_limit=self.count_distr_limit,
+                bin_num_limit=self.bin_num_limit,
+            )
 
-        return breaks
+        # legacy ChiMerge 在入口即 bin_chr.astype('str')，最终 breaks 恒为
+        # str/float dtype（无 tree 的 category-dtype 语义），categories 传 None
+        out = segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds)
+        return out, table, seg_bounds
 
 
 @WOEBinFactory.register('tree')
@@ -156,6 +141,10 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         min_iv_inc: 增加切分点后 IV 相对增幅最小值，默认 0.05
         count_distr_limit: 最小分箱样本占比，默认 0.02
         ensure_monotonic: 是否要求严格单调，默认 False
+        engine: 计算后端 ``'auto'`` | ``'numpy'`` | ``'numba'``（W2 Phase 7），
+            默认 ``'auto'``。Numba 后端要求 ``bin_num_limit ≤ 6``
+            （分区 IV 求和长度 ≤ 8 的逐位一致护栏，超出自动降级 NumPy
+            并告警）；两种后端输出逐位一致（差分测试保证）。
     """
 
     def __init__(self,
@@ -163,72 +152,79 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
                  min_iv_inc: float = 0.05,
                  count_distr_limit: float = 0.02,
                  ensure_monotonic: bool = False,
+                 engine: str = 'auto',
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.min_iv_inc = min_iv_inc
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
+        self.engine = engine
 
     def woebin(self, dtm, breaks=None):
+        """执行树分箱。
+
+        W2 Phase 3：搜索内核改为 NumPy 精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.tree_cut_search`），
+        与 legacy pandas 实现（保留在 ``merge_binning`` / ``node_split`` /
+        ``iv`` 及 test/test_binning_equivalence.py 的参考拷贝中）在
+        cp 标记、Kahan count_distr 段和、IV 算式、单调约束 NaN 语义、
+        接受条件、tie-breaking（并列取最小索引）、段数上限 off-by-one、
+        breaks 提取等全部语义上逐位一致。
+        """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """树分箱内核入口（W2 Phase 6）。
+
+        返回:
+            ``(breaks, 输入计数表, 段边界)`` —— 供 :class:`ComposedWOEBin`
+            把本级输入表 + 输出段传递给下一级复用（免重复全量扫描）。
+            ``parent`` 为可选的 ``(父级计数表, 段边界)`` 缓存。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
-        binning_tree = self.initial_binning(dtm, breaks)
-        binning_tree['node_id'] = 0
-        binning_tree['cp'] = False  # cut point flag
-        binning_tree.loc[len(binning_tree) - 1, 'cp'] = True
+        from syriskmodels.scorecard.core.kernels import (
+            resolve_engine,
+            segments_to_breaks,
+            tree_cut_search,
+        )
 
-        last_iv = 0
+        table = self.initial_count_table(dtm, breaks, parent=parent)
+        count = table.count
+        # 与 legacy initial_binning 的 count_distr 列逐位一致（同算式同顺序）
+        ratios = count / count.sum()
 
-        while len(binning_tree['node_id'].unique()) <= self.bin_num_limit:
-            cut_idx_iv = {}
-            for idx in binning_tree.index[~binning_tree['cp']]:
-                new_node_ids = self.node_split(
-                    binning_tree['node_id'], idx)
-                new_binning = self.merge_binning(
-                    binning_tree, new_node_ids)
-                if self.ensure_monotonic:
-                    monotonic_type = monotonic(new_binning['bad_prob'])
-                    if monotonic_type in ('increasing', 'decreasing'):
-                        monotonic_constrain = True
-                    else:
-                        monotonic_constrain = False
-                else:
-                    monotonic_constrain = True
-
-                if (np.all(
-                        new_binning['count_distr'] > self.count_distr_limit
-                    ) and monotonic_constrain):
-                    curr_iv = new_binning['total_iv'].iloc[0]
-                    if ((curr_iv - last_iv + 1e-8) /
-                            (last_iv + 1e-8)) > self.min_iv_inc:
-                        cut_idx_iv[idx] = curr_iv
-
-            if len(cut_idx_iv) > 0:
-                sorted_cut_idx_iv = sorted(
-                    cut_idx_iv.items(), key=lambda x: -x[1])
-                best_cut_idx = sorted_cut_idx_iv[0][0]
-                last_iv = sorted_cut_idx_iv[0][1]
-                binning_tree['node_id'] = self.node_split(
-                    binning_tree['node_id'], best_cut_idx)
-                binning_tree.loc[best_cut_idx, 'cp'] = True
-            else:
-                break
-
-        best_binning = self.merge_binning(
-            binning_tree, binning_tree['node_id'])
-
-        if is_numeric_dtype(dtm['value']):
-            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
-                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = best_binning['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
+        engine = resolve_engine(self.engine, table.n_bins, len(dtm),
+                                bin_num_limit=self.bin_num_limit)
+        if engine == 'numba':
+            from syriskmodels.scorecard.core.kernels_numba import (
+                tree_cut_search_numba,
+            )
+            seg_bounds = tree_cut_search_numba(
+                table.good, table.bad, ratios,
+                epsilon=self.epsilon,
+                bin_num_limit=self.bin_num_limit,
+                min_iv_inc=self.min_iv_inc,
+                count_distr_limit=self.count_distr_limit,
+                ensure_monotonic=self.ensure_monotonic,
+            )
         else:
-            breaks = best_binning['bin_chr']
+            seg_bounds = tree_cut_search(
+                table.good,
+                table.bad,
+                ratios,
+                epsilon=self.epsilon,
+                bin_num_limit=self.bin_num_limit,
+                min_iv_inc=self.min_iv_inc,
+                count_distr_limit=self.count_distr_limit,
+                ensure_monotonic=self.ensure_monotonic,
+            )
 
-        return breaks
+        out = segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds,
+            categories=table.categories)
+        return out, table, seg_bounds
 
     def merge_binning(self, binning, node_ids):
         # yapf: disable
@@ -287,12 +283,25 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
                  min_hit_samples: Optional[int] = None,
                  pvalue: float = 0.05,
                  direction: str = 'bad',
-                 eps: float = 1e-8):
-        super().__init__()
+                 eps: float = 1e-8,
+                 engine: str = 'auto',
+                 **kwargs):
+        # B-7：接收并透传 **kwargs（与 TreeOptimBin/ChiMergeOptimBin 一致），
+        # 使 WOEBinFactory 的 kwargs 分发机制可用。
+        # 语义决策（W2 报告 §B-7）：本类的 ``eps`` 保持历史含义 ——
+        # lift 计算的平滑项（(bad_prob + eps) / bad_prob_all），默认 1e-8，
+        # **不**转发给基类；基类 ``epsilon``（WOE 零计数替换值）保持默认
+        # 0.5。若把 eps 转发给基类会把 rule 分箱 WOE/IV 的零替换值从 0.5
+        # 变为 1e-8，改变默认分箱输出，违反 W2「默认不改变分箱输出」约束。
+        # W2 Phase 7：``engine`` 参数为 API 一致性保留，但 rule 内核的假设
+        # 检验依赖 scipy.fisher_exact（无法进入 njit），且 NumPy 向量化版
+        # 已达标 —— rule 恒使用 NumPy 后端（见 kernels_numba 模块文档）。
+        super().__init__(**kwargs)
         self._min_lift = lift
         self._min_hit_samples = min_hit_samples or 0
         self._p = pvalue
         self._eps = eps
+        self.engine = engine
         assert direction in ['good', 'bad'], '挖掘方向为good/bad两者之一'
         self._direction = direction
 
@@ -332,66 +341,59 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         return new_binning.reset_index(drop=True)
 
     def woebin(self, dtm, breaks=None):
+        """执行规则分箱。
+
+        W2 Phase 5：切点搜索与监控分箱计算改为向量化精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.rule_cut_search`）：
+        累计计数/foil/lift 全部批量计算，``fisher_exact`` 只对通过
+        lift+min_hit_samples 前置门的候选调用（与 legacy 短路语义等价）；
+        direction、单调分支、监控分箱设置、最终 breaks（含类别型
+        category-dtype 特殊形态）语义与 legacy 逐位一致。
+        ``cut_binning`` 保留为公开方法（兼容），不再位于热路径。
+        """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """规则分箱内核入口（W2 Phase 6）。
+
+        返回 ``(breaks, 计数表, 段边界)``；无合格切点时返回
+        ``([-inf, inf], None, None)``（不可缓存 —— 该 breaks 不对应
+        输入表的任何段划分）。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
-        binning = self.initial_binning(dtm, breaks)
-        if binning.shape[0] < 2:
-            return [-np.inf, np.inf]
+        from syriskmodels.scorecard.core.kernels import (
+            rule_cut_search,
+            rule_segments,
+            segments_to_breaks,
+        )
 
-        # 步骤1：寻找最优切点
-        cut_idx_metric = {}
-        for idx in range(binning.shape[0] - 1):
-            cut_idx_metric[idx] = self.cut_binning(
-                binning, idx)['foil'].max()
-        sorted_cut_idx_metric = sorted(
-            cut_idx_metric.items(), key=lambda x: -x[1])
-        best_cut_idx = sorted_cut_idx_metric[0][0]
-        best_cut_metric = sorted_cut_idx_metric[0][1]
+        table = self.initial_count_table(dtm, breaks, parent=parent)
+        if table.n_bins < 2:
+            return [-np.inf, np.inf], None, None
 
-        # 步骤2：设置监控分箱
-        if best_cut_metric == 0:
+        count = table.count
+        ratios = count / count.sum()
+
+        result = rule_cut_search(
+            table.good,
+            table.bad,
+            ratios,
+            eps_lift=self._eps,
+            min_lift=self._min_lift,
+            min_hit_samples=self._min_hit_samples,
+            p_threshold=self._p,
+            direction=self._direction,
+        )
+        if result is None:
             # 无法找到最优切点
-            return [-np.inf, np.inf]
-        else:
-            new_binning = self.cut_binning(binning, best_cut_idx)
-            binning['cum_count_distr'] = binning['count_distr'].cumsum()
-            # yapf: disable
-            if new_binning['bad_prob'].is_monotonic_decreasing:
-                # 坏率下降，拒绝极小值
-                reject_ratio = binning['count_distr'].iloc[best_cut_idx]
-                monitor_cut_idx = binning.index[
-                    binning['cum_count_distr'] >= min(
-                        reject_ratio + 0.05, 1)].min()
-                if np.isnan(monitor_cut_idx) or (
-                        monitor_cut_idx > binning.shape[0] - 2):
-                    monitor_cut_idx = np.inf
-            else:
-                # 坏率提升，拒绝极大值
-                reject_ratio = (
-                    1 - binning['cum_count_distr'].iloc[best_cut_idx])
-                monitor_cut_idx = binning.index[
-                    binning['cum_count_distr'] <= max(
-                        1 - reject_ratio - 0.05, 0)].max()
-                if np.isnan(monitor_cut_idx):
-                    monitor_cut_idx = -np.inf
-            # yapf: enable
+            return [-np.inf, np.inf], None, None
 
-        cut_idx = np.sort(
-            np.unique([-np.inf, best_cut_idx, monitor_cut_idx, np.inf]))
-        binning['grp'] = pd.cut(binning.index, cut_idx)
-        best_binning = binning.groupby(
-            ['variable', 'grp'], observed=False
-        ).agg(
-            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
+        best_cut_idx, monitor_cut_idx = result
+        seg_bounds = rule_segments(best_cut_idx, monitor_cut_idx,
+                                   table.n_bins)
 
-        if is_numeric_dtype(dtm['value']):
-            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
-                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = best_binning['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
-        else:
-            breaks = best_binning['bin_chr']
-
-        return breaks
+        out = segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds,
+            categories=table.categories)
+        return out, table, seg_bounds

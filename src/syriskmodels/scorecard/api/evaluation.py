@@ -19,6 +19,15 @@ def woebin_psi(
 ) -> pd.DataFrame:
     """计算变量 PSI（保持与 legacy 接口和行为一致）
 
+    W2 修复（B-9）：旧实现用 ``pd.pivot_table`` 汇总两侧计数，单侧缺失的
+    分箱会得到 NaN 分布，再被 ``psi()`` 的 NaN→0 + 重归一化**静默放大**。
+    现在对两侧分箱计数取**并集** reindex，缺失侧显式 ``fillna(0)`` 后再
+    归一化：
+
+    * 正常场景（两侧分箱齐全）输出与旧实现完全一致；
+    * 单侧缺失场景给出有限、可解释的 PSI（0 占比经 ``psi()`` 的 epsilon
+      平滑），并触发 ``UserWarning`` 明确告警。
+
     参数:
         df_base: 基准数据集，一般为训练集
         df_cmp: 比较数据集，一般为测试集或 OOT
@@ -27,6 +36,8 @@ def woebin_psi(
     返回:
         包含 variable, bin, base_distr, cmp_distr, psi 五列的 DataFrame
     """
+    import warnings
+
     from syriskmodels.scorecard.api.transform import woebin_ply
 
     # 使用 bin 形式应用分箱
@@ -35,28 +46,37 @@ def woebin_psi(
 
     vars_base = [v for v in X_base.columns if v.endswith('_bin')]
     vars_cmp = [v for v in X_cmp.columns if v.endswith('_bin')]
-    variables = list(set(vars_base).intersection(set(vars_cmp)))
-
-    X_base['set'] = 'base'
-    X_cmp['set'] = 'cmp'
-
-    dat = pd.concat([X_base, X_cmp])
-    dat['idx'] = dat.index
+    # 排序保证输出行顺序确定（旧实现依赖 set 交集的哈希顺序）
+    variables = sorted(set(vars_base).intersection(vars_cmp))
 
     psi_dfs: List[pd.DataFrame] = []
 
     for variable in variables:
-        tmp = pd.pivot_table(
-            dat,
-            index=variable,
-            columns=['set'],
-            values=['idx'],
-            aggfunc='count',
-        )
-        tmp.columns = ['base', 'cmp']
-        tmp['variable'] = variable[:-4]
-        tmp['bin'] = tmp.index
-        tmp = tmp.reset_index(drop=True)
+        base_counts = X_base[variable].value_counts()
+        cmp_counts = X_cmp[variable].value_counts()
+        # 两侧分箱并集（Index.union 保持排序，与旧 pivot_table 行序一致）
+        all_bins = base_counts.index.union(cmp_counts.index)
+
+        only_base = all_bins.difference(cmp_counts.index)
+        only_cmp = all_bins.difference(base_counts.index)
+        if len(only_base) or len(only_cmp):
+            warnings.warn(
+                f'woebin_psi: 变量 {variable[:-4]} 存在单侧缺失分箱'
+                f'（仅 base 侧: {list(only_base)}；仅 cmp 侧: {list(only_cmp)}），'
+                f'缺失侧已按 0 占比显式补齐后计算 PSI。',
+                UserWarning,
+                stacklevel=2,
+            )
+
+        base_counts = base_counts.reindex(all_bins, fill_value=0)
+        cmp_counts = cmp_counts.reindex(all_bins, fill_value=0)
+
+        tmp = pd.DataFrame({
+            'base': base_counts.to_numpy(),
+            'cmp': cmp_counts.to_numpy(),
+            'variable': variable[:-4],
+            'bin': np.asarray(all_bins),
+        })
 
         tmp = tmp.assign(
             base_distr=lambda x: x['base'] / x['base'].sum(),
@@ -68,14 +88,6 @@ def woebin_psi(
         psi_dfs.append(tmp)
 
     return pd.concat(psi_dfs, ignore_index=True)
-
-
-def _gb_distr(bin_x: pd.DataFrame) -> pd.DataFrame:
-    """补充好/坏样本分布列，供绘图使用。"""
-    bin_x = bin_x.copy()
-    bin_x['good_distr'] = bin_x['good'] / bin_x['count'].sum()
-    bin_x['bad_distr'] = bin_x['bad'] / bin_x['count'].sum()
-    return bin_x
 
 
 def _plot_single_bin(binx: pd.DataFrame, title: Optional[str], show_iv: bool):
@@ -141,7 +153,9 @@ def _plot_single_bin(binx: pd.DataFrame, title: Optional[str], show_iv: bool):
     ax1.set_yticks(np.arange(0, y_left_max + 0.2, 0.2))
     ax2.set_yticks(np.arange(0, y_right_max + 0.2, 0.2))
     ax2.tick_params(axis='y', colors='blue')
-    plt.xticks(ind, binx['bin_chr'])
+    # W2 修复（B-2）：woebin 输出的分箱名列是 'bin'（legacy scorecardpy 时代
+    # 为 'bin_chr'，本仓库的重构输出中不存在该列，旧代码在此处必然 KeyError）
+    plt.xticks(ind, binx['bin'])
     plt.title(title_string, loc='left')
     plt.legend((p2[0], p1[0]), ('bad', 'good'), loc='upper right')
 
@@ -178,10 +192,19 @@ def woebin_plot(
         bins_df = bins.copy()
 
     # 计算 good_distr / bad_distr
-    bins_df = bins_df.groupby('variable', observed=False).apply(_gb_distr)
+    # W2 修复（B-2）：pandas 3 的 groupby.apply 不再把分组键保留为列，
+    # 旧实现 apply(_gb_distr) 后 bins_df['variable'] 抛 KeyError。
+    # 改用 transform 的等价向量化实现，图形语义不变。
+    count_sum = bins_df.groupby('variable', observed=False)['count'].transform(
+        'sum')
+    bins_df = bins_df.assign(
+        good_distr=bins_df['good'] / count_sum,
+        bad_distr=bins_df['bad'] / count_sum,
+    )
 
     if x is None:
-        xs = bins_df['variable'].unique()
+        # 排序与旧 groupby.apply（按分组键排序输出）行为一致，且保证确定性
+        xs = sorted(bins_df['variable'].unique())
     elif isinstance(x, str):
         xs = [x]
     else:

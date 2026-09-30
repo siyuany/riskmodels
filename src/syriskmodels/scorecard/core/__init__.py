@@ -8,6 +8,7 @@ from syriskmodels.scorecard.core.base import (
     OptimBinMixin,
     ComposedWOEBin
 )
+from syriskmodels.scorecard.core.counts import BinCountTable
 from syriskmodels.scorecard.core.factory import WOEBinFactory
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     'InitBin',
     'OptimBinMixin',
     'ComposedWOEBin',
+    'BinCountTable',
     'WOEBinFactory',
 ]

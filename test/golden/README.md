@@ -5,10 +5,10 @@
 
 ## 文件
 
-| 文件 | 数据源 | 用例数 | 无数据时 |
+| 文件 | 数据源 | 用例数 | 数据缺失时 |
 | --- | --- | ---: | --- |
 | `synthetic_binning.json` | `test/test_golden_binning.py::_synthetic_frame()`（确定性 1000 行） | 6 | 正常执行 |
-| `germancredit_binning.json` | `syriskmodels.datasets.load_germancredit()`（全量 1000 行） | 4 | skip（数据不入版本库） |
+| `germancredit_binning.json` | `syriskmodels.datasets.load_germancredit()`（全量 1000 行） | 4 | skip（兜底：`data/*.csv.gz` 已随 Git 入库，干净克隆下正常执行） |
 
 合成数据覆盖：数值（含长尾）、类别、缺失值、常量列、超多类别列，以及与
 target 有信号相关的数值列。**不依赖 creditcard 全量**，避免 CI 过慢。

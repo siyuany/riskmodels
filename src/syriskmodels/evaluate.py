@@ -169,7 +169,23 @@ def gains_table(
 
 
 def psi(base_distr, cmp_distr, epsilon=1e-3):
-    """计算PSI (Population Stability Index)"""
+    """计算PSI (Population Stability Index)
+
+    W2 修复（B-9）：输入分布含 NaN 时不再静默当 0 处理，而是给出显式
+    ``UserWarning`` 说明 NaN 被视为缺失占比 0（通常意味着两侧分箱未对齐；
+    ``woebin_psi`` 已改为对缺失侧显式补 0，正常调用不会触发本告警）。
+    """
+    import warnings
+
+    base_arr = np.asarray(base_distr, dtype='float64')
+    cmp_arr = np.asarray(cmp_distr, dtype='float64')
+    if np.any(np.isnan(base_arr)) or np.any(np.isnan(cmp_arr)):
+        warnings.warn(
+            'psi: 输入分布含 NaN，已按占比 0 处理并重新归一化；'
+            '这通常表示两侧分箱未对齐，PSI 可能被扭曲（见 B-9）。',
+            UserWarning,
+            stacklevel=2,
+        )
 
     def distr_preprocess(distr_arr):
         distr_arr = np.asarray(distr_arr)
@@ -185,8 +201,8 @@ def psi(base_distr, cmp_distr, epsilon=1e-3):
 
         return distr_arr
 
-    base_distr = distr_preprocess(base_distr)
-    cmp_distr = distr_preprocess(cmp_distr)
+    base_distr = distr_preprocess(base_arr)
+    cmp_distr = distr_preprocess(cmp_arr)
 
     # calculate psi
     psi_value = (base_distr - cmp_distr) * np.log(base_distr / cmp_distr)

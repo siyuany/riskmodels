@@ -25,9 +25,6 @@ pandas 3 下已无法复现（见 ``docs/plans/w1-baseline-report.md`` 的 bug �
 断言口径与历史实现保持一致，仅做必要的形式调整（``unittest.TestCase`` 的
 ``setUp`` 改为 pytest 的 autouse fixture —— 项目其余测试已统一为 pytest 风格）。
 """
-import os
-import tempfile
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -215,34 +212,29 @@ class TestWOEBinIntegration:
         assert isinstance(binning_result, pd.DataFrame)
         assert not binning_result.empty
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason='B-2: build_scorecard 末尾调用 woebin_plot；pandas 3 下 '
-               'groupby.apply 丢失分组列，woebin_plot 抛 KeyError("variable")。'
-               '该用例在绘图前的主体流程（分箱/逐步回归/VIF/评分卡/PSI/Excel）'
-               '本已跑通，见下方 "witness" 断言与 W1 报告 B-2。',
-    )
-    def test_build_scorecard_pipeline(self, monkeypatch):
+    def test_build_scorecard_pipeline(self, monkeypatch, tmp_path):
         """creditcard 上的端到端评分卡流水线。
 
         并行控制
         --------
         ``build_scorecard`` 内部经 ``woebin_psi → woebin_ply(no_cores=None)``
-        触发 ``mp.Pool``。这里把 ``woebin_ply`` 固定为 ``no_cores=1``
+        可能触发 ``mp.Pool``。这里把 ``woebin_ply`` 固定为 ``no_cores=1``
         （仅并行度，不改变任何算法与结果），与 W1「测试一律 no_cores=1」的
         约束一致。``woebin`` 已通过 ``binning_kwargs={'no_cores': 1}`` 覆盖。
 
-        覆盖率说明
-        ----------
-        ``woebin_plot`` 的 pandas 3 缺陷（B-2）使本用例无法全绿，因此标
-        ``xfail(strict=False)``。为避免"整条流水线任意环节失败都被 xfail
-        掩盖"，这里额外断言：① ``woebin_psi`` 返回非空结果；② Excel 产物
-        非空。若只是绘图失败，这两条见证断言均成立。
+        历史（B-2，W2 已修复）
+        ----------------------
+        ``woebin_plot`` 曾因 pandas 3 的 ``groupby.apply`` 丢失分组列而抛
+        ``KeyError('variable')``，本用例被迫 ``xfail(strict=False)`` 并用
+        "witness" 断言兜底。B-2 修复后 xfail 与 witness 已移除，整条流水线
+        （分箱/逐步回归/VIF/评分卡/PSI/Excel/绘图）必须真实全绿。
+
+        ``build_scorecard`` 末尾会把 WOE 图写入 CWD 的 ``pic/`` 目录，
+        因此通过 ``monkeypatch.chdir(tmp_path)`` 隔离到临时目录，
+        避免污染仓库根目录。
         """
         import functools
 
-        from syriskmodels.contrib import build_scorecard as _bs_module
-        from syriskmodels.scorecard import woebin_psi as _woebin_psi
         from syriskmodels.scorecard.api import transform as _transform
 
         # 并行度固定为 1（woebin_psi 内部会重新 import woebin_ply）
@@ -250,36 +242,22 @@ class TestWOEBinIntegration:
             _transform, 'woebin_ply',
             functools.partial(_transform.woebin_ply, no_cores=1),
         )
-
-        # witness：woebin_psi 必须产出非空 PSI 表，否则说明流水线更早就已失败
-        psi_calls = []
-
-        def _witnessed_psi(df_base, df_cmp, bins):
-            result = _woebin_psi(df_base, df_cmp, bins)
-            assert isinstance(result, pd.DataFrame)
-            assert not result.empty
-            psi_calls.append(len(result))
-            return result
-
-        monkeypatch.setattr(_bs_module, 'woebin_psi', _witnessed_psi)
+        monkeypatch.chdir(tmp_path)
 
         features = self.df2.columns.tolist()[1:-1]
-        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-            tmp_path = tmp.name
-        try:
-            build_scorecard(
-                self.df2,
-                features=features,
-                target='Class',
-                train_filter=lambda x: x['Time'] <= 140000,
-                oot_filter=lambda x: x['Time'] > 140000,
-                output_excel_file=tmp_path,
-                cv=3,
-                binning_kwargs={'no_cores': 1},
-            )
-            # witness：走到这里说明除绘图外的主流程全部成功
-            assert os.path.getsize(tmp_path) > 0
-            assert psi_calls, 'woebin_psi 未被调用，流水线未运行到 PSI 阶段'
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+        excel_path = tmp_path / 'scorecard.xlsx'
+        build_scorecard(
+            self.df2,
+            features=features,
+            target='Class',
+            train_filter=lambda x: x['Time'] <= 140000,
+            oot_filter=lambda x: x['Time'] > 140000,
+            output_excel_file=str(excel_path),
+            cv=3,
+            binning_kwargs={'no_cores': 1},
+        )
+        # 全流程成功：Excel 产物非空 + WOE 图已保存到 pic/
+        assert excel_path.exists() and excel_path.stat().st_size > 0
+        pic_dir = tmp_path / 'pic'
+        assert pic_dir.is_dir()
+        assert len(list(pic_dir.glob('*.png'))) > 0

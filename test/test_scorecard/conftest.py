@@ -21,43 +21,49 @@ def clean_data():
 
 
 @pytest.fixture
-def data_with_constant_var():
-    """包含常量变量的数据"""
-    df = clean_data()
+def data_with_constant_var(clean_data):
+    """包含常量变量的数据（B-13：改为依赖注入 clean_data fixture）"""
+    df = clean_data.copy()
     df['constant'] = 999  # 常量列
     return df
 
 
 @pytest.fixture
-def data_with_too_many_categories():
-    """类别过多的数据"""
-    df = clean_data()
+def data_with_too_many_categories(clean_data):
+    """类别过多的数据（B-13：改为依赖注入 clean_data fixture）"""
+    df = clean_data.copy()
     df['many_cats'] = [f'cat_{i}' for i in range(1000)]  # 1000 个类别
     return df
 
 
 @pytest.fixture
-def data_with_special_values():
-    """包含特殊值的数据"""
-    df = clean_data()
+def data_with_special_values(clean_data):
+    """包含特殊值的数据（B-13：改为依赖注入 clean_data fixture）"""
+    df = clean_data.copy()
     df.loc[df.sample(50, random_state=42).index, 'age'] = -999  # 异常值
     df.loc[df.sample(30, random_state=42).index, 'income'] = np.nan  # 空值
     return df
 
 
 @pytest.fixture
-def data_with_mixed_types():
-    """混合类型异常数据"""
-    df = clean_data()
+def data_with_mixed_types(clean_data):
+    """混合类型异常数据（B-13：改为依赖注入 clean_data fixture）
+
+    pandas 3 注意：字符串数据默认 dtype 为 ``str``（PDEP-14），不允许写入
+    非字符串值 —— 需先 ``astype(object)`` 才能构造"字符列混入数值"的异常
+    数据（否则 fixture 自身即抛 TypeError，属 B-13 同类潜伏缺陷）。
+    """
+    df = clean_data.copy()
     # 字符列中混入数值
+    df['city'] = df['city'].astype(object)
     df.loc[df.sample(10, random_state=42).index, 'city'] = -999
     return df
 
 
 @pytest.fixture
-def data_all_nan():
-    """全空值列"""
-    df = clean_data()
+def data_all_nan(clean_data):
+    """全空值列（B-13：改为依赖注入 clean_data fixture）"""
+    df = clean_data.copy()
     df['all_nan'] = np.nan
     return df
 

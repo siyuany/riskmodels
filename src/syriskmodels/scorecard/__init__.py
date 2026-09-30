@@ -25,6 +25,7 @@ from syriskmodels.scorecard.core import (
     InitBin,
     OptimBinMixin,
     ComposedWOEBin,
+    BinCountTable,
     WOEBinFactory
 )
 
@@ -84,6 +85,7 @@ __all__ = [
     'InitBin',
     'OptimBinMixin',
     'ComposedWOEBin',
+    'BinCountTable',
     'WOEBinFactory',
     # 分箱算法
     'QuantileInitBin',

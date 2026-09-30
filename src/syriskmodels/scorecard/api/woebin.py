@@ -6,14 +6,13 @@ WOE 分箱 API 模块
 """
 import time
 import itertools
-import multiprocessing as mp
 from typing import Dict, List, Union, Optional, Any
 
 import numpy as np
 import pandas as pd
 
 import syriskmodels.logging as logging
-from syriskmodels.utils import str_to_list
+from syriskmodels.utils import str_to_list, resolve_no_cores, parallel_starmap
 from syriskmodels.scorecard.core.factory import WOEBinFactory
 from syriskmodels.scorecard.utils.validation import (
     check_y,
@@ -31,10 +30,11 @@ def woebin(
     breaks_list: Optional[Dict[str, List]] = None,
     special_values: Optional[Union[List, Dict[str, List]]] = None,
     positive: Union[int, float] = 1,
-    no_cores: Optional[int] = None,
+    no_cores: Optional[int] = 1,
     methods: Optional[List[Union[str, type]]] = None,
     max_cate_num: int = 50,
     replace_blank: Union[float, int] = np.nan,
+    parallel_timeout: Optional[float] = None,
     **kwargs
 ) -> Dict[str, Union[pd.DataFrame, str]]:
     """WOE 分箱主函数
@@ -51,7 +51,11 @@ def woebin(
         special_values: 特殊值列表或字典。列表形式应用于所有变量，
             字典形式为 ``{变量名: [特殊值列表]}``
         positive: 正样本标识值，默认 1
-        no_cores: 多进程数量，None 时自动检测 CPU 核数
+        no_cores: 多进程数量，默认 1（串行）。W2/B-11：``None`` 或 ``<1``
+            一律视为 1；只有**显式**传入 ``>1`` 才启用并行（历史版本会在
+            ``None`` 时自动开启进程池：小数据更慢，且 spawn 语义下
+            Jupyter/REPL/stdin 环境会永久挂起）。交互式环境 + spawn 时
+            显式并行会自动回退串行并发出 ``UserWarning``
         methods: 分箱方法列表，默认 ``['quantile', 'tree']``。
             首元素必须为无监督细分箱方法 (``'quantile'`` 或 ``'hist'``)，
             后续为粗分箱方法 (``'tree'`` 或 ``'chi2'``)。
@@ -64,6 +68,9 @@ def woebin(
 
         max_cate_num: 类别变量最大允许类别数，超过则跳过，默认 50
         replace_blank: 空字符串替换值，默认 ``np.nan``
+        parallel_timeout: 显式并行（``no_cores>1``）时的整体超时秒数，
+            默认 None（不限时）。超时终止进程池并抛 ``TimeoutError``；
+            worker 内异常会传播回主进程重新抛出（B-11）
         **kwargs: 传递给分箱器的其他参数，常用参数包括:
 
             - ``initial_bins`` (int): 细分箱的数量，默认 20
@@ -106,7 +113,6 @@ def woebin(
     
     # x variable names
     xs = x_variable(dt, y, x, var_skip)
-    xs_len = len(xs)
     
     # breaks_list
     breaks_list = check_breaks_list(breaks_list)
@@ -116,13 +122,8 @@ def woebin(
     
     # binning for each x variable
     # loop on xs
-    if (no_cores is None) or (no_cores < 1):
-        all_cores = mp.cpu_count() - 1
-        no_cores = int(
-            np.ceil(xs_len / 5 if xs_len / 5 < all_cores else all_cores * 0.9)
-        )
-        # 确保至少有一个进程
-        no_cores = max(no_cores, 1)
+    # B-11：默认串行；None/<1 视为 1，仅显式 >1 才启用并行
+    no_cores = resolve_no_cores(no_cores)
     
     # y list to str
     y = y[0]
@@ -149,11 +150,11 @@ def woebin(
     logging.info(f'开始分箱，特征数 {len(tasks)}，样本数 {len(dt)}')
     
     if no_cores == 1:
-        bins = dict(zip(xs, itertools.starmap(woe_bin, tasks)))
+        results = list(itertools.starmap(woe_bin, tasks))
     else:
-        pool = mp.Pool(processes=no_cores)
-        bins = dict(zip(xs, pool.starmap(woe_bin, tasks)))
-        pool.close()
+        results = parallel_starmap(woe_bin, tasks, no_cores,
+                                   timeout=parallel_timeout)
+    bins = dict(zip(xs, results))
     
     # running time
     running_time = time.time() - start_time

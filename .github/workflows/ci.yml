@@ -9,7 +9,9 @@ name: CI
 # 约定（见 docs/plans/w1-baseline-report.md）：
 #   * PYTHONHASHSEED=0      —— 固定哈希种子，保证 golden 快照可复现
 #   * 不使用 multiprocessing —— 所有测试显式 no_cores=1
-#   * 数据集不入版本库        —— integration job 会打印数据可用性
+#   * 数据集随仓库入库      —— data/*.csv.gz 已被 Git 跟踪，integration job
+#                              会真实运行 creditcard 全量（非空跑）；
+#                              "Fetch datasets" 步骤仅用于覆盖/刷新数据的场景
 
 on:
   push:
@@ -84,9 +86,10 @@ jobs:
   integration:
     name: integration (py3.11, slow markers)
     runs-on: ubuntu-latest
-    # 大数据集（creditcard ~65MB gz）不入版本库：
-    #   * 若仓库/CI 缓存中不存在，测试会 skip 并在日志中说明原因，job 仍通过
-    #   * 需要真正执行时，把数据放到 data/ 或缓存命中即可
+    # 大数据集（creditcard ~65MB gz）已随 Git 入库（data/*.csv.gz）：
+    #   * integration job 默认真实运行 creditcard 全量用例
+    #   * 若数据被人为移除，测试会 skip 并在日志中说明原因，job 仍通过
+    #   * 可选：配置 vars.RISKMODELS_DATA_URL 用外部数据覆盖仓库内置数据
     steps:
       - uses: actions/checkout@v4
 

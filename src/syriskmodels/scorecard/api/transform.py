@@ -6,22 +6,22 @@ WOE 转换 API 模块
 """
 import time
 import itertools
-import multiprocessing as mp
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Union, Tuple, Optional
 
-import numpy as np
 import pandas as pd
 
 import syriskmodels.logging as logging
+from syriskmodels.utils import resolve_no_cores, parallel_starmap
 from syriskmodels.scorecard.core.base import WOEBin
 
 
 def woebin_ply(
     dt: pd.DataFrame,
     bins: Dict[str, Union[pd.DataFrame, str]],
-    no_cores: int = None,
+    no_cores: int = 1,
     replace_blank: bool = False,
-    value: str = 'woe'
+    value: str = 'woe',
+    parallel_timeout: Optional[float] = None
 ) -> pd.DataFrame:
     """应用 WOE 分箱结果转换数据
 
@@ -31,9 +31,14 @@ def woebin_ply(
     参数:
         dt: 包含变量原始值的数据框，列名需与分箱结果中的变量名一致
         bins: ``woebin()`` 返回的分箱结果字典
-        no_cores: 多进程数量，None 时自动检测
+        no_cores: 多进程数量，默认 1（串行）。W2/B-11：``None`` 或 ``<1``
+            一律视为 1；只有**显式**传入 ``>1`` 才启用并行。交互式环境 +
+            spawn 语义时显式并行会自动回退串行并发出 ``UserWarning``
         replace_blank: 是否将空字符串 ``''`` 替换为 ``np.nan``
         value: 返回值类型，可选 ``['woe', 'index', 'bin']``
+        parallel_timeout: 显式并行（``no_cores>1``）时的整体超时秒数，
+            默认 None（不限时）。超时终止进程池并抛 ``TimeoutError``；
+            worker 内异常会传播回主进程重新抛出（B-11）
 
             - ``'woe'``: 将原始值替换为 WOE 值，列名为 ``变量名_woe``
             - ``'index'``: 将原始值替换为分箱索引 (0, 1, 2,...)，列名为 ``变量名_index``
@@ -65,10 +70,8 @@ def woebin_ply(
     # initial data set
     dat = dt.loc[:, list(set(x_vars_dt) - set(x_vars))].copy()
     
-    if no_cores is None or no_cores < 1:
-        all_cores = mp.cpu_count() - 1
-        no_cores = int(np.ceil(n_x / 5 if n_x / 5 < all_cores else all_cores * 0.9))
-    no_cores = max(no_cores, 1)
+    # B-11：默认串行；None/<1 视为 1，仅显式 >1 才启用并行
+    no_cores = resolve_no_cores(no_cores)
     
     tasks = [
         (
@@ -85,9 +88,8 @@ def woebin_ply(
     if no_cores == 1:
         dat_suffix = list(itertools.starmap(WOEBin.apply, tasks))
     else:
-        pool = mp.Pool(processes=no_cores)
-        dat_suffix = pool.starmap(WOEBin.apply, tasks)
-        pool.close()
+        dat_suffix = parallel_starmap(WOEBin.apply, tasks, no_cores,
+                                      timeout=parallel_timeout)
     
     dat = pd.concat([dat] + dat_suffix, axis=1)
     

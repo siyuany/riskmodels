@@ -243,6 +243,30 @@ _CASES: List[Dict[str, Any]] = [
         'kwargs': {'initial_bins': 20, 'bin_num_limit': 5},
     },
     {
+        # B-4 修复护栏：float 列 + 显式数值型特殊值（数据无 NaN，'missing'
+        # 条目不产生分箱；-999.0 单独成箱）。修复前该路径在 pandas 3 下抛
+        # ValueError（merge 键 object↔float64 冲突）。
+        'name': 'synthetic_numeric_special_values',
+        'dataset': 'synthetic',
+        'x': ['num_skewed', 'num_signal'],
+        'target': 'target',
+        'methods': ['quantile', 'tree'],
+        'kwargs': {'initial_bins': 20, 'bin_num_limit': 5},
+        'special_values': {'num_skewed': ['-999', 'missing']},
+    },
+    {
+        # B-5 修复护栏：int64 列 + 'missing' 特殊值（sv 值集合含 NaN →
+        # 保持 float 语义，'-1' 的 bin 标签为 '-1.0'）。修复前该路径抛
+        # ValueError: cannot convert float NaN to integer。
+        'name': 'synthetic_integer_missing_special_value',
+        'dataset': 'synthetic',
+        'x': ['num_discrete'],
+        'target': 'target',
+        'methods': ['quantile', 'tree'],
+        'kwargs': {'initial_bins': 20, 'bin_num_limit': 5},
+        'special_values': {'num_discrete': ['-1', 'missing']},
+    },
+    {
         'name': 'germancredit_quantile_ib20',
         'dataset': 'germancredit',
         'x': None,  # 全变量（除 target）
