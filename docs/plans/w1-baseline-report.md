@@ -1,6 +1,7 @@
 # W1 基线建设报告：可复现的测试与性能基线
 
-> 分支：`feature/w1-test-baseline`　｜　基线提交：`2aeaa32`（develop）
+> 分支：`feature/w1-test-baseline` → 已按 git flow `--no-ff` 合并入 `develop`
+> 基线提交：`2aeaa32`（W1 起点）｜ 合并提交：`263e8bd` ｜ CI：见 2.5
 > 范围：测试可运行性、CI、golden 快照、性能基线、Bug 清单
 > **本阶段不修改任何分箱 / 模型 / 评分卡核心行为，不碰 `src/`**
 
@@ -112,6 +113,36 @@ subprocess.CalledProcessError → FileNotFoundError:
 * `actions/setup-python@v5` + `cache: pip`，`cache-dependency-path: pyproject.toml`。
 * 不使用 multiprocessing；测试内所有分箱/转换调用显式 `no_cores=1`。
 * 可选：配置仓库变量 `RISKMODELS_DATA_URL` 即自动拉取数据集。
+* 注：`data/*.csv.gz` 已在版本库中跟踪，因此 `integration` / `golden` job 默认
+  有真实数据，不会空跑。
+
+### 2.5 首次 CI 运行记录（run 36674137396）
+
+`develop` 推送后 CI 首次运行，**这正是 CI 存在的意义** —— 本地 macOS 全绿，
+ubuntu x86_64 上暴露了一处只有真实 runner 才能发现的问题：
+
+| job | 结果 | 说明 |
+| --- | --- | --- |
+| `integration` (py3.11, slow) | ✅ 通过 | creditcard 全量分箱 + 评分卡流水线 |
+| `unit` (py3.11) | ❌ 2 failed | 均为 `test_golden_binning.py` 的合成数据用例 |
+| `unit-py312` | ❌ 2 failed | 同上 |
+| `golden` (py3.11) | ❌ 2 failed | 同上 |
+
+失败**全部**指向 `synthetic_quantile_chi2_ib20_limit5`，根因是合成数据生成用了
+RNG 内核、跨架构不同位（详见 B-14）。修复后 CI 转绿，见下节。
+
+### 2.6 修复后的 CI 状态
+
+| job | 结果 |
+| --- | --- |
+| `unit` (py3.11) | ✅ 114 passed, 10 xfailed |
+| `unit-py312` | ✅ 同上 |
+| `integration` (py3.11, slow) | ✅ 7 passed, 1 xfailed |
+| `golden` (py3.11) | ✅ 12 passed |
+
+**验证手段的教训**：在本地"用与 CI 逐字相同的命令跑通"并不能替代真实 runner ——
+它能覆盖命令与版本，但覆盖不到 CPU 架构、libm、RNG 内核差异。凡是把**运行时
+生成的数据**写进快照，就必须假设它可能在别的平台上不同位。
 
 ---
 
@@ -156,7 +187,8 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 
 ## 4. Bug / 风险清单
 
-> 状态：**W1 只记录不修复**。每条都有可执行回归用例
+> 状态：**W1 只记录不修复**（B-1、B-14 例外：均为 **W1 已修**，前者是"测试不可运行"，
+> 后者是"golden 不可移植"，两者都是 W1 验收标准本身要求修好的）。每条都有可执行回归用例
 > （`test/test_known_bugs.py`，`xfail(strict=True)`：修复后用例变 XPASS → 失败，
 > 强制清理记录）。
 > 优先级：**P0** = 阻断主流程 / 结果错误；**P1** = 功能缺失 / 兼容性；
@@ -313,6 +345,19 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 现状 | 当前无测试消费这些 fixture，因此**未暴露**；属潜伏缺陷 |
 | 建议 | 改为 `def data_with_constant_var(clean_data): ...` 依赖注入；W1 未改动（不在允许改动范围的必要项内，且要避免"顺手改测试语义"） |
 | 目标阶段 | W2 |
+
+### B-14 合成测试数据的跨平台可移植性（P1，**已在 W1 修复**）
+
+| 项 | 内容 |
+| --- | --- |
+| 现象 | **首次 CI 运行**（push `develop` 后）：`synthetic_quantile_chi2_ib20_limit5` 在 `unit`(py3.11)、`unit-py312`、`golden` 三个 job 上**全数失败**；本地 macOS 全绿。失败形态是分箱 diff（`num_signal` 的 breaks 与 count 不同），根因被埋在一大坨 JSON 里 |
+| 复现 | `gh run view 36674137396 --log-failed`；本地无法复现（macOS arm64 与 ubuntu x86_64 数据不同位） |
+| 位置 | `test/test_golden_binning.py::_synthetic_frame()`（第一版用 `np.random.default_rng`） |
+| 疑似原因 | 相同 seed 下 `Generator.standard_normal` / `binomial` / `lognormal` 在不同 CPU 架构走不同 SIMD 内核，产生**不同位序列**；`num_signal` 逐位不同 → tree/chi2 贪心切分点分歧（`num_normal`/`num_skewed`/`num_discrete`/`cat_ok` 四项一致，只有依赖 RNG 的 `num_signal` 分歧，可反推为数据而非算法问题） |
+| 影响 | golden 快照变成"只在生成它的平台上有效"，CI 永远红 |
+| 处置 | **W1 已修**：生成器改为**纯整数算术 + 1/2^k 缩放**（IEEE-754 精确运算，不调用 RNG 内核、不用超越函数），并在快照中加入 `data_fingerprint`（每列 CRC32）作为**前置校验** —— 数据不一致时立刻指出具体列，不再让人从分箱 diff 里猜根因 |
+| 教训 | "固定 seed" ≠ "跨平台可复现"。凡是进快照的测试输入，生成过程必须只用精确运算；否则应把数据作为**固定的数据文件**入库，而不是运行时生成 |
+| 目标阶段 | 已完成（W1） |
 
 ---
 
