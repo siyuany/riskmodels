@@ -18,6 +18,11 @@ meta/
 *.bak
 test/*.csv.gz
 
+# 基准产物（本机性能快照，随机器/版本变化，不入库）
+# 目录本身用 .gitkeep 保留；需要入库某次基线时用 git add -f
+bench/results/*
+!bench/results/.gitkeep
+
 # 虚拟环境（统一使用 ~/.venvs/jep，仓库内不应出现 venv）
 venv/
 .venv/

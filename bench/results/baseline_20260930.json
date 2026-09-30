@@ -1,0 +1,444 @@
+{
+  "suite": "baseline",
+  "generated_at": "2026-09-30T04:28:19+00:00",
+  "command": "run_all.py --repeats 3 --warmup 1 --output bench/results/baseline_20260930.json",
+  "environment": {
+    "python": "3.12.13",
+    "python_implementation": "CPython",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_count": 8,
+    "mp_start_method": "spawn",
+    "pandas": "3.0.6",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit_learn": "1.9.1",
+    "statsmodels": "0.15.0",
+    "pyarrow": "25.0.1",
+    "pythonhashseed": "0"
+  },
+  "no_cores": 1,
+  "cases": [
+    {
+      "case_id": "germancredit_rows1000_vars20_quantile_ib20_lim5",
+      "dataset": "germancredit",
+      "n_rows": 1000,
+      "sampling": "full",
+      "target": "creditability",
+      "n_variables": 20,
+      "variables": [
+        "status.of.existing.checking.account",
+        "duration.in.month",
+        "credit.history",
+        "purpose",
+        "credit.amount",
+        "savings.account.and.bonds",
+        "present.employment.since",
+        "installment.rate.in.percentage.of.disposable.income",
+        "personal.status.and.sex",
+        "other.debtors.or.guarantors",
+        "present.residence.since",
+        "property",
+        "age.in.years",
+        "other.installment.plans",
+        "housing",
+        "number.of.existing.credits.at.this.bank",
+        "job",
+        "number.of.people.being.liable.to.provide.maintenance.for",
+        "telephone",
+        "foreign.worker"
+      ],
+      "methods": [
+        "quantile"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          0.122404,
+          0.121599,
+          0.121367
+        ],
+        "median_seconds": 0.121599,
+        "min_seconds": 0.121367,
+        "max_seconds": 0.122404,
+        "stdev_seconds": 0.000544,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.00608,
+      "n_bins": 114,
+      "n_iv_rows": 20,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "germancredit_rows1000_vars20_quantile+tree_ib20_lim5",
+      "dataset": "germancredit",
+      "n_rows": 1000,
+      "sampling": "full",
+      "target": "creditability",
+      "n_variables": 20,
+      "variables": [
+        "status.of.existing.checking.account",
+        "duration.in.month",
+        "credit.history",
+        "purpose",
+        "credit.amount",
+        "savings.account.and.bonds",
+        "present.employment.since",
+        "installment.rate.in.percentage.of.disposable.income",
+        "personal.status.and.sex",
+        "other.debtors.or.guarantors",
+        "present.residence.since",
+        "property",
+        "age.in.years",
+        "other.installment.plans",
+        "housing",
+        "number.of.existing.credits.at.this.bank",
+        "job",
+        "number.of.people.being.liable.to.provide.maintenance.for",
+        "telephone",
+        "foreign.worker"
+      ],
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          0.88273,
+          0.860225,
+          0.869426
+        ],
+        "median_seconds": 0.869426,
+        "min_seconds": 0.860225,
+        "max_seconds": 0.88273,
+        "stdev_seconds": 0.011315,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.043471,
+      "n_bins": 58,
+      "n_iv_rows": 20,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "germancredit_rows1000_vars20_quantile+chi2_ib20_lim5",
+      "dataset": "germancredit",
+      "n_rows": 1000,
+      "sampling": "full",
+      "target": "creditability",
+      "n_variables": 20,
+      "variables": [
+        "status.of.existing.checking.account",
+        "duration.in.month",
+        "credit.history",
+        "purpose",
+        "credit.amount",
+        "savings.account.and.bonds",
+        "present.employment.since",
+        "installment.rate.in.percentage.of.disposable.income",
+        "personal.status.and.sex",
+        "other.debtors.or.guarantors",
+        "present.residence.since",
+        "property",
+        "age.in.years",
+        "other.installment.plans",
+        "housing",
+        "number.of.existing.credits.at.this.bank",
+        "job",
+        "number.of.people.being.liable.to.provide.maintenance.for",
+        "telephone",
+        "foreign.worker"
+      ],
+      "methods": [
+        "quantile",
+        "chi2"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          0.366114,
+          0.381997,
+          0.378785
+        ],
+        "median_seconds": 0.378785,
+        "min_seconds": 0.366114,
+        "max_seconds": 0.381997,
+        "stdev_seconds": 0.008398,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.018939,
+      "n_bins": 42,
+      "n_iv_rows": 20,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "creditcard_rows50000_vars7_quantile+tree_ib20_lim5",
+      "dataset": "creditcard",
+      "n_rows": 50000,
+      "sampling": "head",
+      "target": "Class",
+      "n_variables": 7,
+      "variables": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          1.115371,
+          1.107301,
+          1.107178
+        ],
+        "median_seconds": 1.107301,
+        "min_seconds": 1.107178,
+        "max_seconds": 1.115371,
+        "stdev_seconds": 0.004695,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.158186,
+      "n_bins": 26,
+      "n_iv_rows": 7,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "creditcard_rows50000_vars7_quantile+tree_ib100_lim5",
+      "dataset": "creditcard",
+      "n_rows": 50000,
+      "sampling": "head",
+      "target": "Class",
+      "n_variables": 7,
+      "variables": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "initial_bins": 100,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          6.259249,
+          6.124775,
+          6.268735
+        ],
+        "median_seconds": 6.259249,
+        "min_seconds": 6.124775,
+        "max_seconds": 6.268735,
+        "stdev_seconds": 0.080517,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.894178,
+      "n_bins": 29,
+      "n_iv_rows": 7,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "creditcard_rows50000_vars7_quantile+chi2_ib20_lim5",
+      "dataset": "creditcard",
+      "n_rows": 50000,
+      "sampling": "head",
+      "target": "Class",
+      "n_variables": 7,
+      "variables": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "methods": [
+        "quantile",
+        "chi2"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          0.411229,
+          0.420318,
+          0.400119
+        ],
+        "median_seconds": 0.411229,
+        "min_seconds": 0.400119,
+        "max_seconds": 0.420318,
+        "stdev_seconds": 0.010116,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.058747,
+      "n_bins": 30,
+      "n_iv_rows": 7,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "creditcard_rows50000_vars7_quantile+chi2_ib100_lim5",
+      "dataset": "creditcard",
+      "n_rows": 50000,
+      "sampling": "head",
+      "target": "Class",
+      "n_variables": 7,
+      "variables": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6"
+      ],
+      "methods": [
+        "quantile",
+        "chi2"
+      ],
+      "initial_bins": 100,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          3.418368,
+          3.424855,
+          3.434973
+        ],
+        "median_seconds": 3.424855,
+        "min_seconds": 3.418368,
+        "max_seconds": 3.434973,
+        "stdev_seconds": 0.008369,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.489265,
+      "n_bins": 31,
+      "n_iv_rows": 7,
+      "n_skipped": 0,
+      "skipped_statuses": []
+    },
+    {
+      "case_id": "creditcard_rows50000_vars12_ply-woe",
+      "dataset": "creditcard",
+      "n_rows": 50000,
+      "sampling": "head",
+      "target": "Class",
+      "n_variables": 12,
+      "variables": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7",
+        "V8",
+        "V9",
+        "V10",
+        "V11"
+      ],
+      "value": "woe",
+      "binning_methods": [
+        "quantile",
+        "tree"
+      ],
+      "initial_bins": 20,
+      "bin_num_limit": 5,
+      "no_cores": 1,
+      "timing": {
+        "seconds": [
+          0.108178,
+          0.106911,
+          0.122709
+        ],
+        "median_seconds": 0.108178,
+        "min_seconds": 0.106911,
+        "max_seconds": 0.122709,
+        "stdev_seconds": 0.008778,
+        "repeats": 3,
+        "warmup": 1
+      },
+      "per_variable_seconds": 0.009015,
+      "rows_per_second": 462201.2,
+      "n_output_rows": 50000,
+      "n_output_cols": 12,
+      "n_nan_cells": 0
+    }
+  ],
+  "datasets": {
+    "germancredit": {
+      "name": "germancredit",
+      "n_rows": 1000,
+      "n_cols": 21,
+      "total_rows_available": 1000,
+      "target": "creditability",
+      "sampling": "full"
+    },
+    "creditcard": {
+      "name": "creditcard",
+      "n_rows": 50000,
+      "n_cols": 31,
+      "total_rows_available": 284807,
+      "target": "Class",
+      "sampling": "head"
+    }
+  },
+  "run_args": {
+    "repeats": 3,
+    "warmup": 1,
+    "output": "bench/results/baseline_20260930.json",
+    "german_rows": null,
+    "credit_rows": 50000,
+    "credit_vars": 7,
+    "ply_vars": 12,
+    "include_ib500": false,
+    "quick": false
+  },
+  "effective_repeats": 3,
+  "effective_warmup": 1,
+  "creditcard_initial_bins": [
+    20,
+    100
+  ],
+  "notes": [
+    "所有用例 no_cores=1",
+    "median 为 repeats 次计时的中位数，含 1 次 warmup（warmup 不计入）",
+    "creditcard 采用确定性 head 抽样，sampling 字段标注 full/head"
+  ]
+}
