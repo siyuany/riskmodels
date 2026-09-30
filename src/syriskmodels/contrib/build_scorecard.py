@@ -1,5 +1,6 @@
 # -*- encoding: utf-8 -*-
 import os
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ import statsmodels.api as sm
 from pandas import ExcelWriter
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
+import syriskmodels.logging as logging
 from syriskmodels.contrib.var_select import risk_trends_consistency
 from syriskmodels.evaluate import (model_eval, gains_table, psi,
                                    swap_analysis_simple)
@@ -35,7 +37,8 @@ def build_scorecard(sample_df,
                     base_odds=50,
                     pdo=20,
                     compare_model_fields=None,
-                    random_state=0):
+                    random_state=0,
+                    risk_consistency_dataset='valid'):
     """
 
     Args:
@@ -59,10 +62,19 @@ def build_scorecard(sample_df,
         pdo:
         compare_model_fields:
         random_state:
+        risk_consistency_dataset: 风险趋势一致性筛选使用的数据集（W2/B-10），
+            ``'valid'``（默认）= 验证集 ``02_test``（``random_test_set`` 划分
+            产生；验证集为空时回退训练集并告警）；``'oot'`` = OOT 数据。
+            **选择 ``'oot'`` 会把样本外信息带入特征选择环节**（方法学泄漏，
+            模型效果与 PSI 评估偏乐观），仅在业务明确要求时使用，运行时会
+            给出显式 warning。OOT 的正常用途是最终评估。
 
     Returns:
 
     """
+    assert risk_consistency_dataset in ('valid', 'oot'), (
+        "risk_consistency_dataset 必须是 'valid' 或 'oot'，"
+        f'输入 {risk_consistency_dataset} 不合法')
     if binning_methods is None:
         binning_methods = ['quantile', 'tree']
 
@@ -114,6 +126,11 @@ def build_scorecard(sample_df,
     train_df = sample_df[(sample_df['_train_test_flag_'] == '01_train') &
                          (sample_df[target].isin([0, 1]))].copy().reset_index(
                              drop=True)
+    # W2/B-10：验证集（02_test，由 random_test_set 随机划分产生），
+    # 默认用于风险趋势一致性筛选
+    valid_df = sample_df[(sample_df['_train_test_flag_'] == '02_test') &
+                         (sample_df[target].isin([0, 1]))].copy().reset_index(
+                             drop=True)
     oot_df = sample_df[(sample_df['_train_test_flag_'] == '03_oot') &
                        (sample_df[target].isin([0, 1]))].copy().reset_index(
                            drop=True)
@@ -136,8 +153,29 @@ def build_scorecard(sample_df,
         (iv_df['IV'] > variable_iv_limit) &
         iv_df['单调性'].isin(['increasing', 'decreasing'])].index.tolist()
 
+    # W2/B-10（方法学泄漏修复）：风险趋势一致性筛选默认使用验证集
+    # （02_test），OOT 只用于最终评估。历史实现直接使用 oot_df，把样本外
+    # 信息带入了特征选择环节，导致 OOT 评估偏乐观。若业务明确要求沿用
+    # OOT 口径，可显式传 risk_consistency_dataset='oot'，此时会给出
+    # warning 说明报告偏乐观。
+    if risk_consistency_dataset == 'oot':
+        msg = ("build_scorecard: risk_consistency_dataset='oot' —— 变量筛选"
+               '使用 OOT 数据，样本外信息进入特征选择环节，模型效果与 PSI '
+               "评估将偏乐观（B-10）。如无业务明确要求，请使用默认 'valid'。")
+        logging.warn(msg)
+        warnings.warn(msg, UserWarning, stacklevel=2)
+        consistency_df = oot_df
+    else:
+        consistency_df = valid_df
+        if len(consistency_df) == 0:
+            logging.warn(
+                'build_scorecard: 验证集（02_test）为空（random_test_set=0 或'
+                '无命中样本），风险趋势一致性筛选回退使用训练集；'
+                '该筛选对训练集近似恒通过，等价于不做趋势筛选。')
+            consistency_df = train_df
+
     var_risk_consist = risk_trends_consistency(
-        oot_df, sc_bins={v: bins[v] for v in selected_variables}, target=target)
+        consistency_df, sc_bins={v: bins[v] for v in selected_variables}, target=target)
     selected_variables = [k for k, v in var_risk_consist.items() if v == 1.0]
 
     # 4.逐步回归

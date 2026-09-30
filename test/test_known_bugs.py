@@ -556,32 +556,23 @@ def _build_scorecard_source() -> str:
     ).read_text(encoding='utf-8')
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-10: build_scorecard 用 OOT（oot_df）做风险趋势一致性筛选，"
-           "样本外信息进入特征选择环节",
-)
-def test_b10_variable_selection_uses_oot_and_leaks_into_woe_selection():
-    """B-10：``build_scorecard`` 的变量筛选依赖 OOT 数据（信息泄漏）。
+def test_b10_variable_selection_no_longer_uses_oot_by_default():
+    """B-10（已修复，静态断言）：``build_scorecard`` 默认不用 OOT 做变量筛选。
 
-    现象（静态定位）：``build_scorecard.py`` 的变量筛选流程为
+    历史缺陷：变量筛选链路为 训练集分箱 → 训练集 IV/单调性初筛 →
+    ``risk_trends_consistency(oot_df, ...)`` → ``stepwise_lr`` 候选池。
+    第 3 步把 OOT（样本外）信息带入了**特征选择**环节，OOT 不再是干净的
+    样本外验证集，模型效果与 PSI 评估均偏乐观。
 
-        1. ``bins = woebin(train_df, ...)``        —— 只在训练集上分箱（正确）
-        2. ``selected_variables = iv_df[...]``     —— 用训练集 IV + 单调性初筛
-        3. ``risk_trends_consistency(oot_df, ...)``—— **用 OOT 做趋势一致性筛选**
-        4. ``stepwise_lr(woebin_ply(train_df, ...))`` —— 用第 3 步的结果作为
-           候选池决定哪些变量进入模型
-
-    第 3 步把 OOT（样本外）信息带入了**特征选择**环节：OOT 通过
-    ``train_filter`` / ``oot_filter`` 划分，本应只在最终评估阶段使用。
-    结果是 OOT 不再是干净的样本外验证集，模型效果与 PSI 评估均偏乐观。
-
-    说明：这是流程设计问题而非崩溃 bug，因此本用例做**静态断言**（廉价、确定），
-    要求该调用在 W2 显式处置（改为在训练集/验证集上做趋势筛选，或在文档中
-    明确声明 OOT 参与筛选）。处置后本用例会 XPASS → 失败，请更新记录。
-    保持 xfail 直到流程被修改，避免"记录悄悄失效"。
+    W2 修复：新增 ``risk_consistency_dataset='valid'|'oot'`` 参数，默认
+    ``'valid'``（02_test 验证集；验证集为空时回退训练集并告警）；显式选择
+    ``'oot'`` 时给出明确 warning 说明报告偏乐观。OOT 只用于最终评估。
+    行为验证见 ``test_b10_risk_consistency_dataset_behavior``。
     """
     import ast
+    import inspect
+
+    from syriskmodels.contrib.build_scorecard import build_scorecard
 
     tree = ast.parse(_build_scorecard_source())
     build_fn = next(
@@ -603,7 +594,112 @@ def test_b10_variable_selection_uses_oot_and_leaks_into_woe_selection():
             leak_calls.append(f'line {node.lineno}: risk_trends_consistency({arg_names})')
 
     assert not leak_calls, (
-        'build_scorecard 仍使用 OOT 做变量筛选（B-10 未处置）：' + '; '.join(leak_calls)
+        'build_scorecard 仍直接把 OOT 传入变量筛选：' + '; '.join(leak_calls)
+    )
+
+    sig = inspect.signature(build_scorecard)
+    assert 'risk_consistency_dataset' in sig.parameters, (
+        '缺少显式的 risk_consistency_dataset 参数'
+    )
+    assert sig.parameters['risk_consistency_dataset'].default == 'valid', (
+        "risk_consistency_dataset 默认值必须是 'valid'（OOT 只做最终评估）"
+    )
+
+
+def _b10_sample_df(n: int = 600, seed: int = 5) -> pd.DataFrame:
+    """B-10 行为测试用的小样本（1 个信号变量 + 2 个噪声变量 + Time）。"""
+    rng = np.random.default_rng(seed)
+    f1 = np.round(rng.normal(size=n), 6)
+    p = 1 / (1 + np.exp(-(1.5 * f1 - 0.5)))
+    return pd.DataFrame({
+        'f1': f1,
+        'f2': np.round(rng.normal(size=n), 6),
+        'f3': rng.integers(0, 4, n).astype(float),
+        'Class': rng.binomial(1, p),
+        'Time': rng.integers(0, 200000, n),
+    })
+
+
+@pytest.mark.parametrize('option,expected_flag', [
+    (None, '02_test'),   # 默认 → 验证集
+    ('oot', '03_oot'),   # 显式 OOT → 允许，但必须告警
+])
+def test_b10_risk_consistency_dataset_behavior(
+        tmp_path, monkeypatch, option, expected_flag):
+    """B-10 行为验证：趋势一致性筛选收到的是哪个数据集。"""
+    import warnings as _warnings
+
+    from syriskmodels.contrib import build_scorecard as _bs_module
+
+    captured = {}
+
+    def fake_rtc(df, sc_bins, target):
+        captured['df'] = df
+        return {v: 1.0 for v in sc_bins}
+
+    monkeypatch.setattr(_bs_module, 'risk_trends_consistency', fake_rtc)
+    monkeypatch.chdir(tmp_path)
+
+    kwargs = {} if option is None else {'risk_consistency_dataset': option}
+    sample_df = _b10_sample_df()
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter('always')
+        _bs_module.build_scorecard(
+            sample_df,
+            features=['f1', 'f2', 'f3'],
+            target='Class',
+            train_filter=lambda x: x['Time'] <= 140000,
+            oot_filter=lambda x: x['Time'] > 140000,
+            output_excel_file=str(tmp_path / 'sc.xlsx'),
+            cv=2,
+            binning_kwargs={'no_cores': 1},
+            **kwargs,
+        )
+
+    assert 'df' in captured, 'risk_trends_consistency 未被调用'
+    flags = captured['df']['_train_test_flag_'].unique().tolist()
+    assert flags == [expected_flag], (
+        f'趋势一致性筛选应只使用 {expected_flag} 数据，实际: {flags}'
+    )
+
+    if option == 'oot':
+        b10_warnings = [
+            w for w in caught
+            if issubclass(w.category, UserWarning) and 'OOT' in str(w.message)
+        ]
+        assert b10_warnings, "显式选择 'oot' 时必须给出明确的 UserWarning"
+
+
+def test_b10_risk_consistency_falls_back_to_train_when_no_valid(
+        tmp_path, monkeypatch):
+    """B-10 边界：random_test_set=0（无验证集）时回退训练集。"""
+    from syriskmodels.contrib import build_scorecard as _bs_module
+
+    captured = {}
+
+    def fake_rtc(df, sc_bins, target):
+        captured['df'] = df
+        return {v: 1.0 for v in sc_bins}
+
+    monkeypatch.setattr(_bs_module, 'risk_trends_consistency', fake_rtc)
+    monkeypatch.chdir(tmp_path)
+
+    _bs_module.build_scorecard(
+        _b10_sample_df(),
+        features=['f1', 'f2', 'f3'],
+        target='Class',
+        train_filter=lambda x: x['Time'] <= 140000,
+        oot_filter=lambda x: x['Time'] > 140000,
+        output_excel_file=str(tmp_path / 'sc.xlsx'),
+        cv=2,
+        random_test_set=0,
+        binning_kwargs={'no_cores': 1},
+    )
+
+    flags = captured['df']['_train_test_flag_'].unique().tolist()
+    assert flags == ['01_train'], (
+        f'无验证集时应回退训练集，实际: {flags}'
     )
 
 
