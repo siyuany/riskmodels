@@ -49,6 +49,11 @@ class BinCountTable:
     bad: np.ndarray
     is_numeric: bool
     epsilon: float = 0.5
+    #: 初始分箱 bin_chr 列若为 categorical dtype，这里保存其 categories
+    #: （顺序 = 进入 ``initial_binning`` 的 breaks 顺序）。legacy 语义中它
+    #: 决定"无合并段"时类别型 breaks Series 的 dtype（category）与下游
+    #: ``set_categories`` 采用的顺序 —— 必须随表传递（W2 Phase 3 差分发现）。
+    categories: Optional[tuple] = None
 
     def __post_init__(self):
         good = np.asarray(self.good)
@@ -148,7 +153,11 @@ class BinCountTable:
             epsilon: WOE/IV 的 0 计数替换值
         """
         variable = str(binning['variable'].iloc[0]) if len(binning) else ''
-        bin_chr = binning['bin_chr'].to_numpy(dtype=object).astype(str)
+        bin_chr_col = binning['bin_chr']
+        categories = None
+        if isinstance(bin_chr_col.dtype, pd.CategoricalDtype):
+            categories = tuple(str(c) for c in bin_chr_col.cat.categories)
+        bin_chr = bin_chr_col.to_numpy(dtype=object).astype(str)
         return cls(
             variable=variable,
             bin_chr=np.asarray(bin_chr, dtype=object),
@@ -156,6 +165,7 @@ class BinCountTable:
             bad=binning['bad'].to_numpy(),
             is_numeric=bool(is_numeric),
             epsilon=float(epsilon),
+            categories=categories,
         )
 
     def to_binning_df(self) -> pd.DataFrame:

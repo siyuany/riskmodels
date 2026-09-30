@@ -171,64 +171,42 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         self.ensure_monotonic = ensure_monotonic
 
     def woebin(self, dtm, breaks=None):
+        """执行树分箱。
+
+        W2 Phase 3：搜索内核改为 NumPy 精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.tree_cut_search`），
+        与 legacy pandas 实现（保留在 ``merge_binning`` / ``node_split`` /
+        ``iv`` 及 test/test_binning_equivalence.py 的参考拷贝中）在
+        cp 标记、Kahan count_distr 段和、IV 算式、单调约束 NaN 语义、
+        接受条件、tie-breaking（并列取最小索引）、段数上限 off-by-one、
+        breaks 提取等全部语义上逐位一致。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
-        binning_tree = self.initial_binning(dtm, breaks)
-        binning_tree['node_id'] = 0
-        binning_tree['cp'] = False  # cut point flag
-        binning_tree.loc[len(binning_tree) - 1, 'cp'] = True
+        from syriskmodels.scorecard.core.kernels import (
+            segments_to_breaks,
+            tree_cut_search,
+        )
 
-        last_iv = 0
+        table = self.initial_count_table(dtm, breaks)
+        count = table.count
+        # 与 legacy initial_binning 的 count_distr 列逐位一致（同算式同顺序）
+        ratios = count / count.sum()
 
-        while len(binning_tree['node_id'].unique()) <= self.bin_num_limit:
-            cut_idx_iv = {}
-            for idx in binning_tree.index[~binning_tree['cp']]:
-                new_node_ids = self.node_split(
-                    binning_tree['node_id'], idx)
-                new_binning = self.merge_binning(
-                    binning_tree, new_node_ids)
-                if self.ensure_monotonic:
-                    monotonic_type = monotonic(new_binning['bad_prob'])
-                    if monotonic_type in ('increasing', 'decreasing'):
-                        monotonic_constrain = True
-                    else:
-                        monotonic_constrain = False
-                else:
-                    monotonic_constrain = True
+        seg_bounds = tree_cut_search(
+            table.good,
+            table.bad,
+            ratios,
+            epsilon=self.epsilon,
+            bin_num_limit=self.bin_num_limit,
+            min_iv_inc=self.min_iv_inc,
+            count_distr_limit=self.count_distr_limit,
+            ensure_monotonic=self.ensure_monotonic,
+        )
 
-                if (np.all(
-                        new_binning['count_distr'] > self.count_distr_limit
-                    ) and monotonic_constrain):
-                    curr_iv = new_binning['total_iv'].iloc[0]
-                    if ((curr_iv - last_iv + 1e-8) /
-                            (last_iv + 1e-8)) > self.min_iv_inc:
-                        cut_idx_iv[idx] = curr_iv
-
-            if len(cut_idx_iv) > 0:
-                sorted_cut_idx_iv = sorted(
-                    cut_idx_iv.items(), key=lambda x: -x[1])
-                best_cut_idx = sorted_cut_idx_iv[0][0]
-                last_iv = sorted_cut_idx_iv[0][1]
-                binning_tree['node_id'] = self.node_split(
-                    binning_tree['node_id'], best_cut_idx)
-                binning_tree.loc[best_cut_idx, 'cp'] = True
-            else:
-                break
-
-        best_binning = self.merge_binning(
-            binning_tree, binning_tree['node_id'])
-
-        if is_numeric_dtype(dtm['value']):
-            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
-                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = best_binning['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
-        else:
-            breaks = best_binning['bin_chr']
-
-        return breaks
+        return segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds,
+            categories=table.categories)
 
     def merge_binning(self, binning, node_ids):
         # yapf: disable
