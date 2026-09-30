@@ -341,23 +341,17 @@ def test_b5_integer_column_with_nan_and_missing():
 # B-6 WOEBinFactory 把全局 kwargs 透传给所有 binner
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-6: WOEBinFactory.build 把 **kwargs 透传给每个 binner 构造函数，"
-           "methods 含 rule 时 initial_bins 触发 TypeError",
-)
 def test_b6_quantile_rule_with_initial_bins(synthetic_df):
-    """B-6：``methods=['quantile','rule']`` 配合 ``initial_bins`` 应能分箱。
+    """B-6（已修复）：``methods=['quantile','rule']`` 配合 ``initial_bins`` 应能分箱。
 
-    现象：``TypeError: RuleOptimBin.__init__() got an unexpected keyword
-          argument 'initial_bins'``
-    位置：``src/syriskmodels/scorecard/core/factory.py:122``
-          （``cls.get_binner(bin_cls, **kwargs)`` 对列表内**所有**类别透传同一份
-          kwargs），配合 ``bins/optimal.py:285-291``（``RuleOptimBin.__init__``
-          没有 ``**kwargs``）。
-    影响：README 中"首个细分箱 + 后续粗分箱共享 kwargs"的组合方式对
-          ``rule`` 失效；用户必须改用类实例列表（``[QuantileInitBin(20),
-          RuleOptimBin()]``）绕过。
+    历史缺陷：``WOEBinFactory.build`` 把 ``**kwargs`` 无差别透传给每个 binner
+    构造函数，``RuleOptimBin.__init__`` 没有 ``**kwargs`` →
+    ``TypeError: unexpected keyword argument 'initial_bins'``。
+
+    W2 修复：``get_binner`` 按构造函数签名过滤 kwargs —— 构造函数不接受
+    ``**kwargs`` 的类只收到其显式声明的参数；接受 ``**kwargs`` 的类保持
+    legacy 的全量透传（多余参数由基类收纳）。叠加 B-7（RuleOptimBin 接收
+    ``**kwargs``）后，字符串 methods 组合对 rule 生效。
     """
     frame = _synthetic()
     result = woebin(
@@ -365,61 +359,124 @@ def test_b6_quantile_rule_with_initial_bins(synthetic_df):
         initial_bins=20, no_cores=1,
     )
     assert isinstance(result['num_a'], pd.DataFrame)
+    assert isinstance(result['num_b'], pd.DataFrame)
+
+
+def test_b6_factory_kwargs_dispatch_and_input_forms():
+    """B-6 回归：kwargs 按构造签名过滤；实例/类/注册名三种传参方式保留。"""
+    from syriskmodels.scorecard import (
+        ChiMergeOptimBin,
+        ComposedWOEBin,
+        QuantileInitBin,
+        TreeOptimBin,
+        WOEBin,
+        WOEBinFactory,
+    )
+
+    # 不接受 **kwargs 的严格构造类：无关 kwargs 应被过滤而不是抛 TypeError
+    class StrictBin(WOEBin):
+        def __init__(self, bin_num_limit=5):
+            super().__init__()
+            self.bin_num_limit = bin_num_limit
+
+        def woebin(self, dtm, breaks=None):
+            return [-np.inf, np.inf]
+
+    binner = WOEBinFactory.get_binner(
+        StrictBin, bin_num_limit=3, initial_bins=20, whatever=1)
+    assert binner.bin_num_limit == 3
+
+    # 接受 **kwargs 的类：保持 legacy 全量透传（基类收纳多余参数）
+    tree = WOEBinFactory.get_binner(TreeOptimBin, bin_num_limit=4,
+                                    initial_bins=20)
+    assert tree.bin_num_limit == 4
+    assert tree.kwargs.get('initial_bins') == 20
+
+    # 三种传参方式：注册名 / 类 / 实例
+    composed = WOEBinFactory.build(['quantile', 'tree'], initial_bins=20,
+                                   bin_num_limit=5)
+    assert isinstance(composed, ComposedWOEBin)
+    assert isinstance(composed.bins[0], QuantileInitBin)
+    assert composed.bins[0].n_bins == 20
+    assert isinstance(composed.bins[1], TreeOptimBin)
+    assert composed.bins[1].bin_num_limit == 5
+
+    composed_cls = WOEBinFactory.build([QuantileInitBin, ChiMergeOptimBin],
+                                       initial_bins=10)
+    assert isinstance(composed_cls.bins[0], QuantileInitBin)
+    assert composed_cls.bins[0].n_bins == 10
+    assert isinstance(composed_cls.bins[1], ChiMergeOptimBin)
+
+    inst_a, inst_b = QuantileInitBin(initial_bins=7), TreeOptimBin(bin_num_limit=2)
+    composed_inst = WOEBinFactory.build([inst_a, inst_b], initial_bins=99)
+    assert composed_inst.bins[0] is inst_a   # 实例原样使用，kwargs 不覆盖
+    assert composed_inst.bins[1] is inst_b
+
+    with pytest.raises(KeyError):
+        WOEBinFactory.get_binner('no_such_method')
 
 
 # --------------------------------------------------------------------------- #
 # B-7 RuleOptimBin.__init__ 不接受 / 不传递 **kwargs
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-7: RuleOptimBin.__init__ 不接收也不传递 **kwargs（含 eps）",
-)
 def test_b7_rule_optim_bin_accepts_kwargs():
-    """B-7：``RuleOptimBin`` 应像其他粗分箱类一样接受并传递 ``**kwargs``。
+    """B-7（已修复）：``RuleOptimBin`` 应像其他粗分箱类一样接受 ``**kwargs``。
 
-    现象：``RuleOptimBin(initial_bins=20, eps=0.5)`` →
-          ``TypeError: unexpected keyword argument``
-    位置：``src/syriskmodels/scorecard/bins/optimal.py:285-297``
-    对比：``TreeOptimBin.__init__`` / ``ChiMergeOptimBin.__init__`` 均有
-          ``**kwargs`` 并调用 ``super().__init__(**kwargs)``。
-    影响：① 无法通过 kwargs 调整 ``eps``（基类默认 0.5，RuleOptimBin 自己
-          写死 ``eps=1e-8`` 且不传给父类，行为与基类不一致）；
-          ② 与 ``WOEBinFactory`` 的 kwargs 透传机制不兼容（见 B-6）。
+    历史缺陷：``RuleOptimBin(initial_bins=20, eps=0.5)`` →
+    ``TypeError: unexpected keyword argument``；且 ``super().__init__()``
+    未传参，任意基类参数都被吞掉。
+
+    W2 修复：``__init__`` 接收 ``**kwargs`` 并传给 ``super().__init__``。
+    注意语义决策（记录于 W2 报告）：``RuleOptimBin.eps`` 保持**历史含义**
+    （lift 平滑项，默认 1e-8），不转发给基类 —— 若转发会把基类
+    ``epsilon``（WOE 零计数替换值）从 0.5 变为 1e-8，**改变 rule 分箱的
+    默认输出**，违反 W2「默认不改变分箱输出」的硬性约束。基类参数可经
+    ``**kwargs`` 链到达基类（``eps`` 名称冲突除外，维持 legacy 行为）。
     """
     binner = RuleOptimBin(initial_bins=20)
     assert isinstance(binner, RuleOptimBin)
+    # 多余 kwargs 由基类收纳
+    assert binner.kwargs.get('initial_bins') == 20
+    # 默认语义不变：lift 平滑 eps=1e-8；基类 epsilon 保持默认 0.5
+    assert binner._eps == 1e-8
+    assert binner.epsilon == 0.5
+    # 显式 eps 仍按历史语义作用于 lift 平滑，不影响基类 epsilon
+    binner2 = RuleOptimBin(eps=0.1, lift=5)
+    assert binner2._eps == 0.1
+    assert binner2._min_lift == 5
+    assert binner2.epsilon == 0.5
 
 
 # --------------------------------------------------------------------------- #
 # B-8 check_breaks_list 使用 eval
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-8: check_breaks_list 使用 eval 而非 ast.literal_eval，"
-           "字符串入参可执行任意表达式（代码注入面）",
-)
 def test_b8_check_breaks_list_rejects_non_literal_expressions():
-    """B-8：``check_breaks_list`` 不应求值非字面量表达式（安全）。
+    """B-8（已修复）：``check_breaks_list`` 不应求值非字面量表达式（安全）。
 
-    现象：入参为字符串时直接 ``eval(breaks_list)``，任意表达式都会被执行。
-    位置：``src/syriskmodels/scorecard/utils/validation.py:222-231``
-    风险：``breaks_list`` 常来自配置文件 / 外部输入，``eval`` 使配置具备
-          代码执行能力，属于注入面。
-    建议：W2 改为 ``ast.literal_eval``，并保留"必须是字典"的校验。
+    历史缺陷：入参为字符串时直接 ``eval(breaks_list)``，任意表达式都会被
+    执行（``breaks_list`` 常来自配置文件，构成代码注入面）。
 
-    用例设计：断言"含函数调用的字符串被拒绝"。当前实现会成功求值 →
-    xfail；改为 ``literal_eval`` 后抛 ``ValueError`` → 用例通过（XPASS 消失），
-    此时请把本用例改成不带 xfail 的正向断言并更新 B-8 记录。
+    W2 修复：改用 ``ast.literal_eval``，保留"必须是字典"的校验；非法表达式
+    抛 ``ValueError`` 而不是被执行。
     """
     from syriskmodels.scorecard.utils.validation import check_breaks_list
 
-    # 合法用法必须继续可用（字典直传）
+    # 合法用法必须继续可用（字典直传 / 字面量字符串）
     assert check_breaks_list({'age': [20, 30]}) == {'age': [20, 30]}
+    assert check_breaks_list("{'age': [20, 30]}") == {'age': [20, 30]}
+    assert check_breaks_list(None) == {}
 
-    with pytest.raises(Exception):
+    # 非字面量表达式：抛 ValueError，且表达式不被执行
+    with pytest.raises(ValueError):
         check_breaks_list("{'age': [len('abcd')]}")
+    with pytest.raises(ValueError):
+        check_breaks_list("__import__('os').getcwd()")
+
+    # 字面量但不是字典：保留"必须是字典"校验
+    with pytest.raises(Exception):
+        check_breaks_list("[20, 30]")
 
 
 # --------------------------------------------------------------------------- #

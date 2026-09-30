@@ -287,8 +287,16 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
                  min_hit_samples: Optional[int] = None,
                  pvalue: float = 0.05,
                  direction: str = 'bad',
-                 eps: float = 1e-8):
-        super().__init__()
+                 eps: float = 1e-8,
+                 **kwargs):
+        # B-7：接收并透传 **kwargs（与 TreeOptimBin/ChiMergeOptimBin 一致），
+        # 使 WOEBinFactory 的 kwargs 分发机制可用。
+        # 语义决策（W2 报告 §B-7）：本类的 ``eps`` 保持历史含义 ——
+        # lift 计算的平滑项（(bad_prob + eps) / bad_prob_all），默认 1e-8，
+        # **不**转发给基类；基类 ``epsilon``（WOE 零计数替换值）保持默认
+        # 0.5。若把 eps 转发给基类会把 rule 分箱 WOE/IV 的零替换值从 0.5
+        # 变为 1e-8，改变默认分箱输出，违反 W2「默认不改变分箱输出」约束。
+        super().__init__(**kwargs)
         self._min_lift = lift
         self._min_hit_samples = min_hit_samples or 0
         self._p = pvalue

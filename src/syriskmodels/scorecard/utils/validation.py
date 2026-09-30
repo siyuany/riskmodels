@@ -4,6 +4,7 @@
 
 提供数据检查和验证函数
 """
+import ast
 from typing import List, Union, Dict, Optional
 import numpy as np
 import pandas as pd
@@ -203,26 +204,40 @@ def x_variable(
 
 def check_breaks_list(breaks_list) -> Dict:
     """检查并转换 breaks_list 参数
-    
+
+    W2 修复（B-8）：字符串入参不再用 ``eval``（``breaks_list`` 常来自外部
+    配置，``eval`` 使配置具备任意代码执行能力），改为 ``ast.literal_eval``
+    只接受字面量；非字面量表达式抛 ``ValueError``。"必须是字典"的校验保留。
+
     参数:
-        breaks_list: 用户提供的切分点字典或字符串
-    
+        breaks_list: 用户提供的切分点字典或其字面量字符串
+
     返回:
         切分点字典
-    
+
     异常:
+        ValueError: 字符串不是合法的 Python 字面量
         Exception: breaks_list 不是字典
-    
+
     示例:
         >>> check_breaks_list(None)
         {}
         >>> check_breaks_list({'age': [20, 30, 40]})
         {'age': [20, 30, 40]}
+        >>> check_breaks_list("{'age': [20, 30]}")
+        {'age': [20, 30]}
     """
     if breaks_list is not None:
-        # 是字符串则 eval 转换
+        # 是字符串则用 ast.literal_eval 安全解析（不执行任意表达式）
         if isinstance(breaks_list, str):
-            breaks_list = eval(breaks_list)
+            try:
+                breaks_list = ast.literal_eval(breaks_list)
+            except (ValueError, SyntaxError, TypeError, MemoryError,
+                    RecursionError) as err:
+                raise ValueError(
+                    'breaks_list 字符串必须是合法的 Python 字面量'
+                    f'（ast.literal_eval 可解析的字典）：{err}'
+                ) from err
         # 不是字典则抛出异常
         if not isinstance(breaks_list, dict):
             raise Exception("breaks_list 必须是字典类型")

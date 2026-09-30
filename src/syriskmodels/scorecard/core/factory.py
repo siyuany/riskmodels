@@ -4,7 +4,10 @@ WOEBin 工厂模块
 
 提供分箱器的注册和创建功能
 """
+import inspect
 from typing import List, Union, Type
+
+import syriskmodels.logging as logging
 from syriskmodels.utils import str_to_list
 from syriskmodels.scorecard.core.base import WOEBin, ComposedWOEBin
 
@@ -31,6 +34,33 @@ class WOEBinFactory:
     """
     
     __woebin_class_mapping = {}
+
+    @staticmethod
+    def _filter_kwargs_for(bin_class: Type[WOEBin], kwargs: dict) -> dict:
+        """按构造函数签名过滤 kwargs（B-6）。
+
+        * 构造函数接受 ``**kwargs``（VAR_KEYWORD）→ 全量透传（legacy 行为，
+          多余参数由基类 ``WOEBin.kwargs`` 收纳，不会抛 TypeError）；
+        * 否则只保留构造函数**显式声明**的参数 —— 全局共享的 kwargs
+          （如 ``initial_bins`` 只属于细分箱器）不再无差别透传给所有
+          binner，避免组合 ``rule`` 等严格签名的分箱器时报
+          ``TypeError: unexpected keyword argument``。
+        """
+        try:
+            params = inspect.signature(bin_class.__init__).parameters
+        except (TypeError, ValueError):  # pragma: no cover - 内建类等特殊对象
+            return dict(kwargs)
+
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD
+               for p in params.values()):
+            return dict(kwargs)
+
+        filtered = {k: v for k, v in kwargs.items() if k in params}
+        dropped = sorted(set(kwargs) - set(filtered))
+        if dropped:
+            logging.debug(
+                f'{bin_class.__name__} 的构造函数不接受参数 {dropped}，已忽略')
+        return filtered
     
     @classmethod
     def register(cls, names: Union[str, List[str]]):
@@ -91,7 +121,8 @@ class WOEBinFactory:
         if isinstance(bin_class, WOEBin):
             binner = bin_class
         elif isinstance(bin_class, type) and issubclass(bin_class, WOEBin):
-            binner = bin_class(**kwargs)
+            # B-6：按构造签名过滤 kwargs，实例原样返回（kwargs 不覆盖实例配置）
+            binner = bin_class(**cls._filter_kwargs_for(bin_class, kwargs))
         else:
             raise TypeError(f'类 {bin_class} 不是 WOEBin 实例或子类')
         
