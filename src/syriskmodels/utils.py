@@ -113,6 +113,68 @@ def interactive_mode():
         return True
 
 
+def resolve_no_cores(no_cores):
+    """解析并行度 —— 默认串行（B-11）。
+
+    ``None`` / ``<1`` 一律视为 1（串行）；只有用户**显式**传入
+    ``no_cores>1`` 才启用并行。历史实现在 ``no_cores=None`` 时按
+    ``ceil(len(xs)/5)`` 自动开启 ``mp.Pool``：小数据下更慢（W1 实测 +45%），
+    且 spawn 语义（macOS/Windows）下 Jupyter/REPL/stdin 环境中 worker
+    无法导入 ``__main__`` 会**无限挂起**，故 W2 移除自动并行。
+    """
+    if no_cores is None or no_cores < 1:
+        return 1
+    return int(no_cores)
+
+
+def parallel_starmap(func, tasks, no_cores, timeout=None):
+    """安全的多进程 starmap（B-11）。
+
+    仅在显式 ``no_cores>1`` 时由 ``woebin`` / ``woebin_ply`` 调用：
+
+    * 使用平台默认进程上下文（Linux=fork，macOS/Windows=spawn）；
+      spawn + 交互式环境（Jupyter/REPL/管道 stdin，``__main__`` 不可导入）
+      下 worker 会永久挂起 —— 此时自动回退串行并发出 ``UserWarning``；
+    * ``starmap_async().get(timeout)``：worker 内异常会在主进程重新抛出
+      （错误传播）；超时则 ``terminate()`` 进程池并抛 ``TimeoutError``；
+    * ``with`` 上下文保证进程池无论成败都被清理（不再有泄漏的 Pool）。
+
+    Args:
+        func: 可调用对象（须可 pickle：模块级函数/实例）
+        tasks: 参数元组可迭代对象
+        no_cores: 进程数（>1）
+        timeout: 整体超时秒数；None 表示不限时
+
+    Returns:
+        list，结果顺序与 tasks 一致
+    """
+    import itertools
+    import multiprocessing as mp
+    import warnings
+
+    tasks = list(tasks)
+    ctx = mp.get_context()
+    if ctx.get_start_method() == 'spawn' and interactive_mode():
+        warnings.warn(
+            '交互式环境（Jupyter/REPL/stdin）下 spawn 模式的 worker 无法导入 '
+            '__main__，将永久挂起；已回退串行执行（no_cores=1）。'
+            '如需并行，请以脚本方式运行并显式传入 no_cores>1。',
+            UserWarning,
+            stacklevel=3)
+        return list(itertools.starmap(func, tasks))
+
+    with ctx.Pool(processes=no_cores) as pool:
+        async_result = pool.starmap_async(func, tasks)
+        try:
+            return async_result.get(timeout=timeout)
+        except mp.TimeoutError as err:
+            pool.terminate()
+            raise TimeoutError(
+                f'多进程任务未在 {timeout}s 内完成，已终止进程池；'
+                '可减少变量数、增大 timeout 或改用 no_cores=1 串行执行'
+            ) from err
+
+
 def str_to_list(x):
     if x is not None and isinstance(x, str):
         x = [x]

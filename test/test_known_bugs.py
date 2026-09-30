@@ -710,11 +710,10 @@ def test_b10_risk_consistency_falls_back_to_train_when_no_valid(
 def test_b11_woebin_returns_identical_result_for_single_core(synthetic_df):
     """B-11（护栏）：分箱器对象可 pickle，且 ``no_cores=1`` 结果确定。
 
-    ``woebin`` / ``woebin_ply`` 在 ``no_cores=None`` 时会自行计算核数并走
-    ``mp.Pool``（``api/woebin.py:119-125,151-156``、
-    ``api/transform.py:68-71,85-90``）。macOS / Windows 默认 spawn 语义，
-    Pool 需要 pickle 任务与 binner 对象；同时小数据下并行与进程启动开销
-    相比并无收益（见报告 B-11 的实测数据）。
+    ``woebin`` / ``woebin_ply`` 历史上在 ``no_cores=None``（默认）时会自行
+    计算核数并走 ``mp.Pool``（``api/woebin.py`` / ``api/transform.py``）。
+    macOS / Windows 默认 spawn 语义，Pool 需要 pickle 任务与 binner 对象；
+    同时小数据下并行与进程启动开销相比并无收益（见报告 B-11 的实测数据）。
 
     本用例只做**廉价**的不变量检查（不影响 CI 时长）：
     1. ``ComposedWOEBin`` 及其子分箱器实例可 pickle 往返（spawn 的前提）；
@@ -732,6 +731,109 @@ def test_b11_woebin_returns_identical_result_for_single_core(synthetic_df):
     second = _bins(frame, ['num_a', 'num_b', 'cat_a'])
     for variable in first:
         pd.testing.assert_frame_equal(first[variable], second[variable])
+
+
+def _b11_frame(n_vars: int = 6) -> pd.DataFrame:
+    """B-11 用数据：变量数 >5，legacy 自动核数公式在默认路径会给出 >1。"""
+    rng = np.random.default_rng(77)
+    n = 500
+    data = {f'v{i}': np.round(rng.normal(size=n), 6) for i in range(n_vars)}
+    data['target'] = rng.binomial(1, 0.3, n)
+    return pd.DataFrame(data)
+
+
+def test_b11_default_is_serial(monkeypatch):
+    """B-11（已修复）：默认不创建进程池 —— no_cores 缺省即串行。
+
+    历史缺陷：``no_cores=None``（默认）时按 ``ceil(len(xs)/5)`` 自动开启
+    ``mp.Pool``：小数据更慢（+45%），且 spawn 语义下 Jupyter/REPL/stdin
+    会因 worker 无法导入 ``__main__`` 而**无限挂起**。
+
+    W2 修复：``woebin`` / ``woebin_ply`` 默认 ``no_cores=1``；None/<1 一律
+    视为 1（串行）；只有显式传入 ``no_cores>1`` 才启用并行。
+    """
+    import multiprocessing
+
+    def _no_pool(*args, **kwargs):
+        raise AssertionError('默认路径不应创建 multiprocessing 进程池')
+
+    monkeypatch.setattr(multiprocessing, 'Pool', _no_pool)
+    monkeypatch.setattr(multiprocessing, 'get_context', _no_pool)
+
+    frame = _b11_frame()
+    x = [f'v{i}' for i in range(6)]
+
+    bins_default = woebin(frame, y='target', x=x, methods=['quantile', 'tree'],
+                          initial_bins=20, bin_num_limit=5)
+    bins_serial = woebin(frame, y='target', x=x, methods=['quantile', 'tree'],
+                         initial_bins=20, bin_num_limit=5, no_cores=1)
+    for v in x:
+        pd.testing.assert_frame_equal(bins_default[v], bins_serial[v])
+
+    from syriskmodels.scorecard import woebin_ply
+    ply_default = woebin_ply(frame[x], bins_default, value='woe')
+    ply_serial = woebin_ply(frame[x], bins_serial, value='woe', no_cores=1)
+    pd.testing.assert_frame_equal(
+        ply_default.sort_index(axis=1), ply_serial.sort_index(axis=1))
+
+
+def test_b11_interactive_spawn_falls_back_to_serial(monkeypatch):
+    """B-11（已修复）：交互式环境 + spawn 语义 → 自动回退串行并告警。
+
+    spawn 需要 worker 重新导入 ``__main__``；Jupyter/REPL/管道 stdin 下
+    ``__main__`` 不可导入，历史实现会**无限等待不返回**（实测 240s 未退出）。
+    修复后：显式 ``no_cores>1`` 且（spawn 上下文 + 交互式环境）时，回退
+    ``no_cores=1`` 串行执行并发出 ``UserWarning``，结果与串行一致。
+    """
+    import multiprocessing
+
+    from syriskmodels import utils as sy_utils
+
+    class _SpawnLikeCtx:
+        def get_start_method(self):
+            return 'spawn'
+
+        def Pool(self, *args, **kwargs):
+            raise AssertionError('交互式 spawn 环境不应创建进程池')
+
+    monkeypatch.setattr(multiprocessing, 'get_context',
+                        lambda *a, **k: _SpawnLikeCtx())
+    monkeypatch.setattr(sy_utils, 'interactive_mode', lambda: True)
+
+    frame = _b11_frame()
+    x = [f'v{i}' for i in range(6)]
+
+    with pytest.warns(UserWarning, match='交互式'):
+        bins_par = woebin(frame, y='target', x=x,
+                          methods=['quantile', 'tree'],
+                          initial_bins=20, bin_num_limit=5, no_cores=2)
+    bins_serial = woebin(frame, y='target', x=x, methods=['quantile', 'tree'],
+                         initial_bins=20, bin_num_limit=5, no_cores=1)
+    for v in x:
+        pd.testing.assert_frame_equal(bins_par[v], bins_serial[v])
+
+
+def test_b11_explicit_parallel_matches_serial():
+    """B-11 验收：显式 ``no_cores=2`` 与 ``no_cores=1`` 结果完全一致。
+
+    在非交互（pytest 脚本）环境下真实创建进程池执行；worker 异常必须
+    传播回主进程（``starmap_async().get()``），进程池用 with 上下文管理清理。
+    """
+    frame = _b11_frame()
+    x = [f'v{i}' for i in range(6)]
+
+    bins_serial = woebin(frame, y='target', x=x, methods=['quantile', 'tree'],
+                         initial_bins=20, bin_num_limit=5, no_cores=1)
+    bins_parallel = woebin(frame, y='target', x=x, methods=['quantile', 'tree'],
+                           initial_bins=20, bin_num_limit=5, no_cores=2)
+    for v in x:
+        pd.testing.assert_frame_equal(bins_parallel[v], bins_serial[v])
+
+    from syriskmodels.scorecard import woebin_ply
+    ply_serial = woebin_ply(frame[x], bins_serial, value='woe', no_cores=1)
+    ply_parallel = woebin_ply(frame[x], bins_serial, value='woe', no_cores=2)
+    pd.testing.assert_frame_equal(
+        ply_parallel.sort_index(axis=1), ply_serial.sort_index(axis=1))
 
 
 # --------------------------------------------------------------------------- #
