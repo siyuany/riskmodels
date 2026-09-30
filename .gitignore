@@ -7,7 +7,6 @@ build/
 .coverage
 htmlcov/
 *.xlsx
-!docs/**/*.xlsx
 .vscode/
 .idea/
 .DS_Store
