@@ -79,6 +79,10 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         tie-breaking（取最小索引）、count_distr 标量增量维护、
         最终 breaks 提取等全部语义上逐位一致。
         """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """ChiMerge 内核入口（W2 Phase 6），返回 ``(breaks, 计数表, 段边界)``。"""
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
         from syriskmodels.scorecard.core.kernels import (
@@ -86,7 +90,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
             segments_to_breaks,
         )
 
-        table = self.initial_count_table(dtm, breaks)
+        table = self.initial_count_table(dtm, breaks, parent=parent)
         count = table.count
         # 与 legacy initial_binning 的 count_distr 列逐位一致
         ratios = count / count.sum()
@@ -102,8 +106,9 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
 
         # legacy ChiMerge 在入口即 bin_chr.astype('str')，最终 breaks 恒为
         # str/float dtype（无 tree 的 category-dtype 语义），categories 传 None
-        return segments_to_breaks(
+        out = segments_to_breaks(
             table.bin_chr, table.is_numeric, seg_bounds)
+        return out, table, seg_bounds
 
 
 @WOEBinFactory.register('tree')
@@ -143,6 +148,16 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         接受条件、tie-breaking（并列取最小索引）、段数上限 off-by-one、
         breaks 提取等全部语义上逐位一致。
         """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """树分箱内核入口（W2 Phase 6）。
+
+        返回:
+            ``(breaks, 输入计数表, 段边界)`` —— 供 :class:`ComposedWOEBin`
+            把本级输入表 + 输出段传递给下一级复用（免重复全量扫描）。
+            ``parent`` 为可选的 ``(父级计数表, 段边界)`` 缓存。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
         from syriskmodels.scorecard.core.kernels import (
@@ -150,7 +165,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
             tree_cut_search,
         )
 
-        table = self.initial_count_table(dtm, breaks)
+        table = self.initial_count_table(dtm, breaks, parent=parent)
         count = table.count
         # 与 legacy initial_binning 的 count_distr 列逐位一致（同算式同顺序）
         ratios = count / count.sum()
@@ -166,9 +181,10 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
             ensure_monotonic=self.ensure_monotonic,
         )
 
-        return segments_to_breaks(
+        out = segments_to_breaks(
             table.bin_chr, table.is_numeric, seg_bounds,
             categories=table.categories)
+        return out, table, seg_bounds
 
     def merge_binning(self, binning, node_ids):
         # yapf: disable
@@ -290,6 +306,15 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         category-dtype 特殊形态）语义与 legacy 逐位一致。
         ``cut_binning`` 保留为公开方法（兼容），不再位于热路径。
         """
+        return self.woebin_with_table(dtm, breaks)[0]
+
+    def woebin_with_table(self, dtm, breaks=None, parent=None):
+        """规则分箱内核入口（W2 Phase 6）。
+
+        返回 ``(breaks, 计数表, 段边界)``；无合格切点时返回
+        ``([-inf, inf], None, None)``（不可缓存 —— 该 breaks 不对应
+        输入表的任何段划分）。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
         from syriskmodels.scorecard.core.kernels import (
@@ -298,9 +323,9 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
             segments_to_breaks,
         )
 
-        table = self.initial_count_table(dtm, breaks)
+        table = self.initial_count_table(dtm, breaks, parent=parent)
         if table.n_bins < 2:
-            return [-np.inf, np.inf]
+            return [-np.inf, np.inf], None, None
 
         count = table.count
         ratios = count / count.sum()
@@ -317,12 +342,13 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         )
         if result is None:
             # 无法找到最优切点
-            return [-np.inf, np.inf]
+            return [-np.inf, np.inf], None, None
 
         best_cut_idx, monitor_cut_idx = result
         seg_bounds = rule_segments(best_cut_idx, monitor_cut_idx,
                                    table.n_bins)
 
-        return segments_to_breaks(
+        out = segments_to_breaks(
             table.bin_chr, table.is_numeric, seg_bounds,
             categories=table.categories)
+        return out, table, seg_bounds

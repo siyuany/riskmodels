@@ -22,7 +22,7 @@ ChiMerge / Rule 的候选搜索只依赖该结构做 NumPy 向量化运算，不
 用 :meth:`replace` 生成新表。
 """
 from dataclasses import dataclass, replace as _dc_replace
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -50,10 +50,13 @@ class BinCountTable:
     is_numeric: bool
     epsilon: float = 0.5
     #: 初始分箱 bin_chr 列若为 categorical dtype，这里保存其 categories
-    #: （顺序 = 进入 ``initial_binning`` 的 breaks 顺序）。legacy 语义中它
-    #: 决定"无合并段"时类别型 breaks Series 的 dtype（category）与下游
-    #: ``set_categories`` 采用的顺序 —— 必须随表传递（W2 Phase 3 差分发现）。
-    categories: Optional[tuple] = None
+    #: **Index 对象本身**（顺序 = 进入 ``initial_binning`` 的 breaks 顺序；
+    #: Index 的 ``name`` 也是可观测行为 —— 它经 legacy groupby-agg 的
+    #: category dtype 保留、再经 ``set_categories`` 传播到最终 breaks 列的
+    #: categories.names，多级组合链上必须原样携带）。legacy 语义中它决定
+    #: "无合并段"时类别型 breaks Series 的 dtype（category）与下游
+    #: ``set_categories`` 采用的顺序（W2 Phase 3/6 差分发现）。
+    categories: Optional[Any] = None
 
     def __post_init__(self):
         good = np.asarray(self.good)
@@ -156,7 +159,8 @@ class BinCountTable:
         bin_chr_col = binning['bin_chr']
         categories = None
         if isinstance(bin_chr_col.dtype, pd.CategoricalDtype):
-            categories = tuple(str(c) for c in bin_chr_col.cat.categories)
+            # 保存 Index 对象本身（含 name —— 见字段注释）
+            categories = bin_chr_col.cat.categories
         bin_chr = bin_chr_col.to_numpy(dtype=object).astype(str)
         return cls(
             variable=variable,
@@ -189,6 +193,128 @@ class BinCountTable:
         """生成替换了部分字段的新表（frozen dataclass 的受控变更）。"""
         return _dc_replace(self, **changes)
 
+    def segment_sums(self, seg_bounds) -> tuple:
+        """按段边界聚合 good/bad（int64 前缀和差分，精确）。
+
+        返回 ``(seg_good, seg_bad)``，段 i = 行 ``[b_i, b_{i+1})``。
+        """
+        bounds = np.asarray(seg_bounds, dtype='int64')
+        n = int(self.good.shape[0])
+        pre_g = np.zeros(n + 1, dtype='int64')
+        pre_b = np.zeros(n + 1, dtype='int64')
+        if n > 0:
+            np.cumsum(self.good, out=pre_g[1:])
+            np.cumsum(self.bad, out=pre_b[1:])
+        seg_g = pre_g[bounds[1:]] - pre_g[bounds[:-1]]
+        seg_b = pre_b[bounds[1:]] - pre_b[bounds[:-1]]
+        return seg_g, seg_b
+
     def __repr__(self) -> str:
         return (f'BinCountTable(variable={self.variable!r}, n_bins={self.n_bins}, '
                 f'total={self.total}, is_numeric={self.is_numeric})')
+
+
+def binning_from_segments(
+    table: BinCountTable,
+    seg_bounds,
+    breaks,
+    is_numeric: bool,
+) -> Optional[pd.DataFrame]:
+    """由父级计数表 + 段边界聚合出与全新扫描**逐位等价**的 binning 表。
+
+    W2 Phase 6（ComposedWOEBin 缓存）核心：上一级粗分箱的输出 ``breaks``
+    与段边界 ``seg_bounds`` 描述的是父级计数表行的一个**连续区间划分**，
+    对 ``dtm`` 重新执行 ``binning_breaks``（pd.cut/merge + groupby 全量
+    扫描）得到的分组计数与直接对父表做段聚合在数学上恒等；本函数进一步
+    保证输出 DataFrame 的**行序 / dtype / categories** 与全新扫描一致：
+
+    * 数值型：labels 用与 ``WOEBin.binning_breaks`` 完全相同的构造式
+      （``'[{},{})'.format``，break_list = ``-inf`` + 升序去重有限边界 +
+      ``inf``）生成，bin_chr 为 ``Categorical(labels, ordered=True)``
+      （= ``pd.cut(labels=...)`` 的 dtype），行序 = 区间升序；
+    * 类别型：段内 bin_chr 以 ``'%,%'`` 拼接；行序 = ``set_categories``
+      后的 categories 顺序（breaks 为 categorical Series 时取其
+      ``cat.categories`` —— legacy 的 pandas 语义；否则取 breaks 值序）；
+      bin_chr 为 ``Categorical(ordered=True)``，与
+      ``astype('category').cat.set_categories(breaks, ordered=True)`` +
+      ``sort_values`` 的输出一致；
+    * good/bad：int64 前缀和差分（精确，等于 groupby.sum 的整数结果）。
+
+    校验失败（breaks 与段不一一对应、解析异常等）时返回 ``None``，
+    调用方**必须回退**到原始扫描路径 —— 缓存只是性能提示，绝不改变语义。
+
+    参数:
+        table: 父级计数表
+        seg_bounds: 段边界（相对父表行号）
+        breaks: 与 seg_bounds 对应的 breaks 输出（上一级内核产物）
+        is_numeric: 变量是否数值型
+
+    返回:
+        与 ``WOEBin.binning_breaks(dtm, breaks)`` 输出一致的 DataFrame
+        （列：variable / bin_chr / good / bad），或 None（回退信号）
+    """
+    try:
+        seg_bounds = np.asarray(seg_bounds, dtype='int64')
+        n_seg = int(seg_bounds.shape[0] - 1)
+        if n_seg < 1:
+            return None
+        seg_g, seg_b = table.segment_sums(seg_bounds)
+        bin_chr_arr = table.bin_chr
+
+        if is_numeric:
+            # 复刻 binning_breaks 的 break_list / labels 构造
+            values = [float(v) for v in list(breaks)]
+            finite = sorted({v for v in values if np.isfinite(v)})
+            break_list = [-np.inf] + finite + [np.inf]
+            labels = ['[{},{})'.format(break_list[i], break_list[i + 1])
+                      for i in range(len(break_list) - 1)]
+            if len(labels) != n_seg:
+                return None
+            # 校验：labels 与段一一对应（右边界逐一相等）
+            for i in range(n_seg):
+                last = str(bin_chr_arr[int(seg_bounds[i + 1]) - 1])
+                right = last[last.rindex(',') + 1:-1]
+                lab_right = labels[i][labels[i].rindex(',') + 1:-1]
+                if float(right) != float(lab_right):
+                    return None
+            bin_chr = pd.Categorical(labels, categories=labels, ordered=True)
+            return pd.DataFrame({
+                'variable': [table.variable] * n_seg,
+                'bin_chr': bin_chr,
+                'good': seg_g,
+                'bad': seg_b,
+            })
+
+        # 类别型：段内拼接
+        joined = ['%,%'.join([str(x) for x in bin_chr_arr[a:b]])
+                  for a, b in zip(seg_bounds[:-1], seg_bounds[1:])]
+
+        # categories 顺序 = 全新扫描下 set_categories(breaks) 的结果。
+        # 保真细节：全新路径的 categories 索引会携带 breaks Series 的
+        # name（'bin_chr'），并传播到最终输出 breaks 列的 categories.names
+        # —— 属可观测行为（assert_frame_equal 会比对）。这里以相同方式
+        # 构造：categorical breaks 直接取其 cat.categories 对象；
+        # Series 用 Index(breaks)（保留 name）；其余用值列表。
+        if isinstance(breaks, pd.Series) and isinstance(
+                breaks.dtype, pd.CategoricalDtype):
+            cats_index = breaks.cat.categories
+        elif isinstance(breaks, pd.Series):
+            cats_index = pd.Index(breaks)
+        else:
+            cats_index = pd.Index([str(v) for v in list(breaks)])
+        cats = [str(c) for c in cats_index]
+        if len(cats) != n_seg or set(cats) != set(joined):
+            return None
+        # 行序 = categories 顺序（sort_values 于唯一类别位序上是全序，
+        # 与全新扫描的排序结果一致且稳定）
+        pos = {name: i for i, name in enumerate(joined)}
+        order = [pos[c] for c in cats]
+        bin_chr = pd.Categorical(cats, categories=cats_index, ordered=True)
+        return pd.DataFrame({
+            'variable': [table.variable] * n_seg,
+            'bin_chr': bin_chr,
+            'good': seg_g[order],
+            'bad': seg_b[order],
+        })
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None

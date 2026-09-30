@@ -538,17 +538,30 @@ class OptimBinMixin:
             分箱统计 DataFrame
         """
         binning = self.binning_breaks(dtm, breaks)
+        return self._initial_binning_finish(
+            binning, is_numeric_dtype(dtm['value']))
+
+    @staticmethod
+    def _initial_binning_finish(binning, is_numeric):
+        """initial_binning 的收尾步骤（W2 Phase 6 拆出，供缓存路径复用）。
+
+        对给定 binning 表（列：variable/bin_chr/good/bad，行序 =
+        ``binning_breaks`` 输出）补充 count/count_distr，并对类别型按
+        badprob 降序重排 —— 与拆分前的 ``initial_binning`` 逐位一致；
+        缓存路径以相同行序/dtype 的输入调用本方法，保证不稳定排序
+        （quicksort）产生相同结果。
+        """
         binning['count'] = binning['good'] + binning['bad']
         binning['count_distr'] = binning['count'] / binning['count'].sum()
-        
-        if not is_numeric_dtype(dtm['value']):
+
+        if not is_numeric:
             binning['badprob'] = binning['bad'] / binning['count']
             binning = binning.sort_values(
                 by='badprob', ascending=False).reset_index(drop=True)
-        
+
         return binning
 
-    def initial_count_table(self, dtm, breaks):
+    def initial_count_table(self, dtm, breaks, parent=None):
         """根据细分箱切分点生成粗分箱计数表（W2 Phase 2）。
 
         返回 :class:`~syriskmodels.scorecard.core.counts.BinCountTable`，
@@ -559,16 +572,35 @@ class OptimBinMixin:
         参数:
             dtm: 输入数据 (variable, y, value 三列)
             breaks: 细分箱切分点
+            parent: 可选缓存 ``(父级 BinCountTable, 段边界)``（W2 Phase 6，
+                由 :class:`ComposedWOEBin` 传入）。命中时通过段聚合构造
+                计数表，避免对 ``dtm`` 重复 pd.cut/merge + groupby 全量
+                扫描；构造结果与全新扫描逐位一致（校验失败自动回退扫描）。
 
         返回:
             BinCountTable
         """
-        from syriskmodels.scorecard.core.counts import BinCountTable
+        from syriskmodels.scorecard.core.counts import (
+            BinCountTable,
+            binning_from_segments,
+        )
+
+        is_num = is_numeric_dtype(dtm['value'])
+
+        if parent is not None:
+            parent_table, parent_bounds = parent
+            if parent_bounds is not None:
+                cached = binning_from_segments(
+                    parent_table, parent_bounds, breaks, is_num)
+                if cached is not None:
+                    binning = self._initial_binning_finish(cached, is_num)
+                    return BinCountTable.from_binning_df(
+                        binning, is_numeric=is_num, epsilon=self.epsilon)
 
         binning = self.initial_binning(dtm, breaks)
         return BinCountTable.from_binning_df(
             binning,
-            is_numeric=is_numeric_dtype(dtm['value']),
+            is_numeric=is_num,
             epsilon=self.epsilon,
         )
 
@@ -576,7 +608,15 @@ class OptimBinMixin:
 class ComposedWOEBin(WOEBin):
     """组合分箱器
     
-    将多个 WOEBin 实例按顺序组合使用
+    将多个 WOEBin 实例按顺序组合使用。
+
+    W2 Phase 6：链路上各级粗分箱复用上一级的计数表 —— 每级内核返回
+    ``(breaks, 输入计数表, 段边界)``（``woebin_with_table``），下一级的
+    ``initial_count_table`` 由段聚合构造（免 pd.cut/merge + groupby 全量
+    重扫），``__call__`` 的最终 ``binning_breaks`` 同样命中缓存。缓存以
+    **对象同一性**（weakref）为键，仅在库内部调用链上生效；单独调用
+    ``woebin(dtm, breaks)`` / 自定义分箱器（无 ``woebin_with_table``）
+    自动走原始扫描路径，行为不变。
     
     参数:
         bins: WOEBin 实例列表
@@ -586,6 +626,9 @@ class ComposedWOEBin(WOEBin):
     def __init__(self, bins: List[WOEBin], **kwargs):
         super().__init__(**kwargs)
         self.bins = bins
+        # (weakref(dtm), weakref(breaks), (table, seg_bounds))；仅性能提示，
+        # 不参与任何语义（weakref 不可 pickle → __getstate__ 中丢弃）
+        self._counts_cache = None
     
     def woebin(self, dtm: pd.DataFrame, breaks: Optional[List] = None) -> List:
         """按顺序执行所有分箱器
@@ -597,18 +640,69 @@ class ComposedWOEBin(WOEBin):
         返回:
             最终切分点列表
         """
+        import weakref
+
         current_breaks = breaks
-        
+        parent = None
+
         for i, binner in enumerate(self.bins):
             if i == 0 and current_breaks is None:
                 # 第一个分箱器，无初始切分点
                 current_breaks = binner.woebin(dtm)
+                parent = None
             else:
                 # 后续分箱器，使用前一个的切分点
-                current_breaks = binner.woebin(dtm, breaks=current_breaks)
-        
+                with_table = getattr(binner, 'woebin_with_table', None)
+                if with_table is not None:
+                    current_breaks, table, seg_bounds = with_table(
+                        dtm, breaks=current_breaks, parent=parent)
+                    parent = None if table is None else (table, seg_bounds)
+                else:
+                    current_breaks = binner.woebin(dtm, breaks=current_breaks)
+                    parent = None
+
+        # 为 __call__ 的最终 binning_breaks 缓存计数表（同一性校验）
+        self._counts_cache = None
+        if parent is not None:
+            try:
+                self._counts_cache = (
+                    weakref.ref(dtm), weakref.ref(current_breaks), parent)
+            except TypeError:
+                # breaks 为不可弱引用对象（如 ndarray）→ 放弃缓存
+                self._counts_cache = None
+
         return current_breaks
-    
+
+    def binning_breaks(self, dtm: pd.DataFrame, breaks: List) -> pd.DataFrame:
+        """按照给定 breaks 分箱；命中 Phase 6 缓存时由段聚合直接构造。
+
+        缓存命中条件（全部满足才使用，否则走父类原始扫描）：
+        1. ``dtm`` 与本实例最近一次 ``woebin`` 收到的是**同一对象**
+           （weakref 同一性；对象被回收后引用失效 → 自动 miss）；
+        2. ``breaks`` 与该次 ``woebin`` 的返回是**同一对象**；
+        3. ``binning_from_segments`` 的一致性校验通过（breaks 与段
+           一一对应）。
+        """
+        cache = self._counts_cache
+        if cache is not None:
+            dtm_ref, breaks_ref, parent = cache
+            if dtm_ref() is dtm and breaks_ref() is breaks:
+                from syriskmodels.scorecard.core.counts import (
+                    binning_from_segments,
+                )
+                cached = binning_from_segments(
+                    parent[0], parent[1], breaks,
+                    is_numeric_dtype(dtm['value']))
+                if cached is not None:
+                    return cached
+        return super().binning_breaks(dtm, breaks)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # weakref 不可 pickle；缓存仅是性能提示，跨进程直接丢弃
+        state['_counts_cache'] = None
+        return state
+
     def __repr__(self):
         bin_names = [b.__class__.__name__ for b in self.bins]
         return f"ComposedWOEBin({bin_names})"

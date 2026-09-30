@@ -1130,3 +1130,107 @@ def test_rule_germancredit_categorical_matches_reference():
                 [QuantileInitBin(initial_bins=20), RefRuleOptimBin(**kwargs)])
             pd.testing.assert_frame_equal(prod_c(dtm.copy()),
                                           ref_c(dtm.copy()))
+
+
+# ============================================================================ #
+# Phase 6：ComposedWOEBin 计数表缓存（免重复原始扫描 + 逐位等价）
+# ============================================================================ #
+
+def _chain_binners(chain, use_ref):
+    bins = [QuantileInitBin(initial_bins=20)]
+    for name in chain:
+        if name == 'tree':
+            cls = RefTreeOptimBin if use_ref else TreeOptimBin
+            bins.append(cls(bin_num_limit=4))
+        elif name == 'chi2':
+            cls = RefChiMergeOptimBin if use_ref else ChiMergeOptimBin
+            bins.append(cls(bin_num_limit=4))
+        elif name == 'rule':
+            cls = RefRuleOptimBin if use_ref else RuleOptimBin
+            bins.append(cls(lift=1.5, pvalue=0.3))
+        else:  # pragma: no cover
+            raise AssertionError(name)
+    return bins
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+@pytest.mark.parametrize('chain', [['tree'], ['chi2'], ['rule'],
+                                   ['tree', 'chi2'], ['chi2', 'tree']],
+                         ids=['q+tree', 'q+chi2', 'q+rule',
+                              'q+tree+chi2', 'q+chi2+tree'])
+def test_composed_cache_matches_reference(dtm_cases, case_id, chain):
+    """组合链（启用缓存的生产实现）vs 全参考链（无缓存）逐位一致。"""
+    dtm = dtm_cases[case_id]
+    special = ['-999'] if case_id == 'num_missing_sentinel' else None
+
+    prod = ComposedWOEBin(_chain_binners(chain, use_ref=False))
+    ref = ComposedWOEBin(_chain_binners(chain, use_ref=True))
+
+    res_prod = prod(dtm.copy(), special_values=special)
+    res_ref = ref(dtm.copy(), special_values=special)
+    if isinstance(res_ref, str):
+        assert res_prod == res_ref
+        return
+    pd.testing.assert_frame_equal(res_prod, res_ref)
+
+
+def test_composed_cache_scans_raw_data_once(dtm_cases, monkeypatch):
+    """缓存命中证明：[q,tree,chi2] 链路只允许一次原始 binning_breaks 扫描。
+
+    tree 首级扫描一次；chi2 的首级计数表与 __call__ 的最终 binning_breaks
+    都必须由段聚合缓存构造（不再调用 WOEBin.binning_breaks）。
+    """
+    from syriskmodels.scorecard.core import base as base_mod
+
+    dtm = _drop_nan(dtm_cases['num_signal'])
+    calls = []
+    orig = base_mod.WOEBin.binning_breaks
+
+    def spy(self, d, b):
+        calls.append(type(self).__name__)
+        return orig(self, d, b)
+
+    monkeypatch.setattr(base_mod.WOEBin, 'binning_breaks', spy)
+    composed = ComposedWOEBin([
+        QuantileInitBin(initial_bins=20),
+        TreeOptimBin(bin_num_limit=5),
+        ChiMergeOptimBin(bin_num_limit=4),
+    ])
+    result = composed(dtm.copy())
+    assert isinstance(result, pd.DataFrame)
+    assert calls == ['TreeOptimBin'], (
+        f'缓存未按预期命中，原始扫描调用: {calls}')
+
+
+def test_composed_cache_pickle_after_call(dtm_cases):
+    """调用后实例仍可 pickle（缓存 weakref 在 __getstate__ 中丢弃）。"""
+    import pickle
+
+    dtm = _drop_nan(dtm_cases['num_signal'])
+    composed = ComposedWOEBin(
+        [QuantileInitBin(initial_bins=20), TreeOptimBin(bin_num_limit=4)])
+    first = composed(dtm.copy())
+    restored = pickle.loads(pickle.dumps(composed))
+    assert repr(restored) == repr(composed)
+    pd.testing.assert_frame_equal(restored(dtm.copy()), first)
+
+
+def test_composed_cache_identity_guard(dtm_cases):
+    """缓存同一性守卫：换数据/换 breaks 对象必须走原始扫描且结果正确。"""
+    dtm1 = _drop_nan(dtm_cases['num_signal'])
+    dtm2 = dtm1.iloc[:500].reset_index(drop=True)
+
+    composed = ComposedWOEBin(
+        [QuantileInitBin(initial_bins=20), TreeOptimBin(bin_num_limit=4)])
+    composed(dtm1.copy())          # 填充缓存
+
+    # 不同数据：缓存必须失效，结果与全新实例一致
+    fresh = ComposedWOEBin(
+        [QuantileInitBin(initial_bins=20), TreeOptimBin(bin_num_limit=4)])
+    pd.testing.assert_frame_equal(composed(dtm2.copy()), fresh(dtm2.copy()))
+
+    # 外部直接调用 binning_breaks（无 woebin 上下文）行为不变
+    brk = fresh.woebin(dtm2.copy())
+    direct = composed.binning_breaks(dtm2.copy(), brk)
+    baseline = WOEBin.binning_breaks(composed, dtm2.copy(), brk)
+    pd.testing.assert_frame_equal(direct, baseline)

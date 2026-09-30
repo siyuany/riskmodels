@@ -589,10 +589,13 @@ def segments_to_breaks(
 
     joined = ['%,%'.join([str(x) for x in bin_chr[a:b]]) for a, b in segs]
     if categories is not None:
-        cat_list = [str(c) for c in categories]
-        cat_set = set(cat_list)
+        # categories 可能是 pd.Index（携带 name —— legacy 经 groupby-agg 的
+        # category dtype 保留并传播到最终输出的 categories.names）或普通序列
+        cats_index = categories if isinstance(categories, pd.Index) \
+            else pd.Index([str(c) for c in categories])
+        cat_set = {str(c) for c in cats_index}
         if all(j in cat_set for j in joined):
             return pd.Series(
-                pd.Categorical(joined, categories=cat_list, ordered=True),
+                pd.Categorical(joined, categories=cats_index, ordered=True),
                 name='bin_chr')
     return pd.Series(joined, name='bin_chr')
