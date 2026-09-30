@@ -45,6 +45,7 @@ __all__ = [
     'tree_cut_search',
     'chi2_pair_stats',
     'chi2_merge_search',
+    'rule_cut_search',
     'segments_to_breaks',
 ]
 
@@ -389,6 +390,154 @@ def chi2_merge_search(
 
         chi2 = chi2_pair_stats(good, bad)
 
+    return np.asarray(bounds, dtype='int64')
+
+
+# --------------------------------------------------------------------------- #
+# Rule 内核
+# --------------------------------------------------------------------------- #
+
+def rule_cut_search(
+    good: np.ndarray,
+    bad: np.ndarray,
+    ratios: np.ndarray,
+    eps_lift: float,
+    min_lift: float,
+    min_hit_samples: int,
+    p_threshold: float,
+    direction: str,
+):
+    """RuleOptimBin 最优切点 + 监控分箱搜索的向量化精确等价实现。
+
+    复刻 legacy 语义（逐条对应 W1 develop ``RuleOptimBin.woebin`` /
+    ``cut_binning``）：
+
+    * 候选 = 切点 idx ∈ [0, n-2]，左段 [0..idx]、右段 [idx+1..n-1]
+      （groupby 'left'<'right' 排序 → 左行在前）；
+    * ``bad_prob_all = bad.sum()/count.sum()``（int 精确和 → float 除法）；
+      ``lift = (bad_prob + eps_lift) / bad_prob_all``；
+      ``foil = bad * log2(lift)``；候选度量 = 左右 foil 的 max；
+    * 前置门（与 legacy 短路顺序等价）：
+      direction='bad' → ``any(lift > min_lift)``；'good' → ``any(lift <
+      min_lift)``；且 ``min(count_left, count_right) > min_hit_samples``；
+      **只有通过前置门的候选才调用 ``scipy.stats.fisher_exact``**
+      （输入 [[g_l,b_l],[g_r,b_r]]，pvalue < p_threshold 才保留度量，
+      否则度量置 0 —— legacy 门失败时把两行 foil 置 0，max=0 等价）；
+    * 择优：度量最大者；并列取最小 idx（legacy 稳定排序等价）；
+      最优度量 == 0（含全部门失败）→ 返回 None（legacy 返回
+      ``[-inf, inf]`` 单箱）；
+    * 监控分箱：``cum_count_distr = np.cumsum(ratios)``（与 pandas
+      ``Series.cumsum`` 逐位一致，已验证）；
+      ``bad_prob`` 左 >= 右（含等值；任何 NaN → False，与 pandas
+      ``is_monotonic_decreasing`` 一致）时走"坏率下降"分支：
+      ``reject_ratio = ratios[best]``，monitor = 首个
+      ``cum >= min(reject_ratio + 0.05, 1)`` 的索引，无解或
+      ``> n-2`` → +inf；否则走"坏率提升"分支：
+      ``reject_ratio = 1 - cum[best]``，monitor = 最后一个
+      ``cum <= max(1 - reject_ratio - 0.05, 0)`` 的索引，无解 → -inf
+      （浮点运算次序与 legacy 表达式逐步一致）。
+
+    返回:
+        ``(best_cut_idx, monitor_cut_idx)``；无可分箱切点时返回 ``None``。
+    """
+    from scipy.stats import fisher_exact
+
+    good = np.asarray(good, dtype='int64')
+    bad = np.asarray(bad, dtype='int64')
+    ratios = np.asarray(ratios, dtype='float64')
+    n = int(good.shape[0])
+    if n < 2:
+        return None
+
+    pre_g = np.zeros(n + 1, dtype='int64')
+    pre_b = np.zeros(n + 1, dtype='int64')
+    np.cumsum(good, out=pre_g[1:])
+    np.cumsum(bad, out=pre_b[1:])
+    total_g = int(pre_g[n])
+    total_b = int(pre_b[n])
+    total_cnt = total_g + total_b
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        bad_prob_all = total_b / total_cnt
+
+        idx = np.arange(n - 1)
+        gL = pre_g[idx + 1]
+        bL = pre_b[idx + 1]
+        gR = total_g - gL
+        bR = total_b - bL
+        cntL = gL + bL
+        cntR = total_cnt - cntL
+
+        bp_l = bL / cntL
+        bp_r = bR / cntR
+        lift_l = (bp_l + eps_lift) / bad_prob_all
+        lift_r = (bp_r + eps_lift) / bad_prob_all
+        foil_l = bL * np.log2(lift_l)
+        foil_r = bR * np.log2(lift_r)
+
+    if direction == 'bad':
+        lift_cond = (lift_l > min_lift) | (lift_r > min_lift)
+    else:
+        lift_cond = (lift_l < min_lift) | (lift_r < min_lift)
+    count_gate = np.minimum(cntL, cntR) > min_hit_samples
+    pre_gate = lift_cond & count_gate
+
+    metric = np.zeros(n - 1, dtype='float64')
+    for c in np.flatnonzero(pre_gate):
+        # 与 legacy 相同的 fisher_exact 调用（仅前置门通过的候选）
+        pv = fisher_exact(
+            [[int(gL[c]), int(bL[c])], [int(gR[c]), int(bR[c])]]).pvalue
+        if pv < p_threshold:
+            # np.fmax：与 pandas Series.max() 的 skipna 语义一致
+            metric[c] = float(np.fmax(foil_l[c], foil_r[c]))
+
+    best = int(np.argmax(metric))          # 并列取最小 idx（升序首个最大值）
+    best_metric = float(metric[best])
+    if best_metric == 0:
+        # legacy：无法找到最优切点 → [-inf, inf]
+        return None
+
+    # ---- 监控分箱 ----
+    cum = np.cumsum(ratios)
+    bp_l_best = float(bp_l[best])
+    bp_r_best = float(bp_r[best])
+    decreasing = (not np.isnan(bp_l_best) and not np.isnan(bp_r_best)
+                  and bp_l_best >= bp_r_best)
+
+    if decreasing:
+        # 坏率下降，拒绝极小值
+        reject_ratio = float(ratios[best])
+        threshold = min(reject_ratio + 0.05, 1)
+        pos = np.flatnonzero(cum >= threshold)
+        monitor = float(pos[0]) if pos.size else np.nan
+        if np.isnan(monitor) or monitor > n - 2:
+            monitor = np.inf
+    else:
+        # 坏率提升，拒绝极大值
+        reject_ratio = 1 - float(cum[best])
+        threshold = max((1 - reject_ratio) - 0.05, 0)
+        pos = np.flatnonzero(cum <= threshold)
+        monitor = float(pos[-1]) if pos.size else np.nan
+        if np.isnan(monitor):
+            monitor = -np.inf
+
+    return best, monitor
+
+
+def rule_segments(best_cut_idx: int, monitor_cut_idx: float,
+                  n_bins: int) -> np.ndarray:
+    """把 rule 的 (best, monitor) 切点组装为段边界。
+
+    复刻 legacy ``pd.cut(binning.index, np.sort(np.unique(
+    [-inf, best, monitor, inf])))``（right=True → 段为 (c_i, c_{i+1}]）
+    与 ``groupby(observed=False)`` 的行序语义。
+    """
+    cuts = np.unique(np.array(
+        [-np.inf, float(best_cut_idx), float(monitor_cut_idx), np.inf]))
+    bounds = [0]
+    for c in cuts[1:-1]:
+        bounds.append(int(c) + 1)
+    bounds.append(int(n_bins))
     return np.asarray(bounds, dtype='int64')
 
 

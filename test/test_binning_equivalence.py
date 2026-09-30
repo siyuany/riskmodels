@@ -857,3 +857,276 @@ def test_composed_quantile_tree_chi2_matches_reference():
             RefChiMergeOptimBin(bin_num_limit=4),
         ])
         pd.testing.assert_frame_equal(prod(dtm.copy()), ref(dtm.copy()))
+
+
+class RefRuleOptimBin(_LegacyBinningMixin, WOEBin, _LegacyOptimBinMixin):
+    """W1 develop ``bins/optimal.py::RuleOptimBin`` 的逐字参考拷贝。
+
+    保留 W1 构造签名（无 ``**kwargs``；B-7 修复前形态），默认行为与
+    生产版本一致。
+    """
+
+    def __init__(self,
+                 lift: float = 3,
+                 min_hit_samples=None,
+                 pvalue: float = 0.05,
+                 direction: str = 'bad',
+                 eps: float = 1e-8):
+        super().__init__()
+        self._min_lift = lift
+        self._min_hit_samples = min_hit_samples or 0
+        self._p = pvalue
+        self._eps = eps
+        assert direction in ['good', 'bad'], '挖掘方向为good/bad两者之一'
+        self._direction = direction
+
+    def cut_binning(self, binning, idx):
+        from scipy.stats import fisher_exact
+
+        flag = np.where(binning.index <= idx, 'left', 'right')
+        new_binning = binning.groupby([
+            'variable',
+            flag,
+        ]).agg(
+            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())),
+            count=('count', 'sum'),
+            count_distr=('count_distr', 'sum'),
+            good=('good', 'sum'),
+            bad=('bad', 'sum')).assign(
+                bad_prob=lambda x: x['bad'] / x['count'],
+                bad_prob_all=lambda x: (
+                    x['bad'].sum() / x['count'].sum())).assign(
+                    lift=lambda x: (
+                        (x['bad_prob'] + self._eps) / x['bad_prob_all']))
+        new_binning['foil'] = (
+            new_binning['bad'] * np.log2(new_binning['lift']))
+
+        lift_cond = (
+            (self._direction == 'good') &
+            (np.any(new_binning['lift'] < self._min_lift)) |
+            ((self._direction == 'bad') &
+             (np.any(new_binning['lift'] > self._min_lift))))
+
+        # yapf: disable
+        if not (lift_cond
+            and new_binning['count'].min() > self._min_hit_samples
+            and fisher_exact(
+                new_binning[['good', 'bad']]).pvalue < self._p):
+            new_binning['foil'] = 0
+        # yapf: enable
+
+        return new_binning.reset_index(drop=True)
+
+    def woebin(self, dtm, breaks=None):
+        assert breaks is not None, \
+            f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
+        binning = self.initial_binning(dtm, breaks)
+        if binning.shape[0] < 2:
+            return [-np.inf, np.inf]
+
+        # 步骤1：寻找最优切点
+        cut_idx_metric = {}
+        for idx in range(binning.shape[0] - 1):
+            cut_idx_metric[idx] = self.cut_binning(
+                binning, idx)['foil'].max()
+        sorted_cut_idx_metric = sorted(
+            cut_idx_metric.items(), key=lambda x: -x[1])
+        best_cut_idx = sorted_cut_idx_metric[0][0]
+        best_cut_metric = sorted_cut_idx_metric[0][1]
+
+        # 步骤2：设置监控分箱
+        if best_cut_metric == 0:
+            # 无法找到最优切点
+            return [-np.inf, np.inf]
+        else:
+            new_binning = self.cut_binning(binning, best_cut_idx)
+            binning['cum_count_distr'] = binning['count_distr'].cumsum()
+            # yapf: disable
+            if new_binning['bad_prob'].is_monotonic_decreasing:
+                # 坏率下降，拒绝极小值
+                reject_ratio = binning['count_distr'].iloc[best_cut_idx]
+                monitor_cut_idx = binning.index[
+                    binning['cum_count_distr'] >= min(
+                        reject_ratio + 0.05, 1)].min()
+                if np.isnan(monitor_cut_idx) or (
+                        monitor_cut_idx > binning.shape[0] - 2):
+                    monitor_cut_idx = np.inf
+            else:
+                # 坏率提升，拒绝极大值
+                reject_ratio = (
+                    1 - binning['cum_count_distr'].iloc[best_cut_idx])
+                monitor_cut_idx = binning.index[
+                    binning['cum_count_distr'] <= max(
+                        1 - reject_ratio - 0.05, 0)].max()
+                if np.isnan(monitor_cut_idx):
+                    monitor_cut_idx = -np.inf
+            # yapf: enable
+
+        cut_idx = np.sort(
+            np.unique([-np.inf, best_cut_idx, monitor_cut_idx, np.inf]))
+        binning['grp'] = pd.cut(binning.index, cut_idx)
+        best_binning = binning.groupby(
+            ['variable', 'grp'], observed=False
+        ).agg(
+            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
+
+        if pd.api.types.is_numeric_dtype(dtm['value']):
+            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
+                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+            _pattern = re.compile(r"^\[(.*), *(.*)\)")
+            breaks = best_binning['bin_chr'].apply(
+                lambda x: _pattern.match(x)[2])
+            breaks = pd.to_numeric(breaks)
+        else:
+            breaks = best_binning['bin_chr']
+
+        return breaks
+
+
+# ============================================================================ #
+# Rule：生产向量化实现 vs W1 参考拷贝
+# ============================================================================ #
+
+def _run_rule_pair(dtm, breaks, **rule_kwargs):
+    prod = RuleOptimBin(**rule_kwargs)
+    ref = RefRuleOptimBin(**rule_kwargs)
+    b_prod = prod.woebin(dtm, breaks)
+    b_ref = ref.woebin(dtm, breaks)
+    _assert_breaks_identical(b_prod, b_ref)
+    return b_prod
+
+
+RULE_PARAMS_UNIT = [
+    dict(lift=3, min_hit_samples=None, pvalue=0.05, direction='bad',
+         initial_bins=20),
+    dict(lift=3, min_hit_samples=50, pvalue=0.05, direction='bad',
+         initial_bins=20),
+    dict(lift=1.5, min_hit_samples=None, pvalue=0.5, direction='good',
+         initial_bins=20),
+    dict(lift=3, min_hit_samples=None, pvalue=0.05, direction='bad',
+         initial_bins=50),
+    dict(lift=2, min_hit_samples=20, pvalue=0.2, direction='good',
+         initial_bins=50),
+]
+RULE_PARAMS_SLOW = [
+    dict(lift=3, min_hit_samples=None, pvalue=0.05, direction='bad',
+         initial_bins=100),
+    dict(lift=1.5, min_hit_samples=30, pvalue=0.5, direction='good',
+         initial_bins=100),
+]
+
+
+def _rule_id(p):
+    return (f"lift{p['lift']}_mhs{p['min_hit_samples']}_p{p['pvalue']}"
+            f"_{p['direction']}_ib{p['initial_bins']}")
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+@pytest.mark.parametrize('params', RULE_PARAMS_UNIT,
+                         ids=[_rule_id(p) for p in RULE_PARAMS_UNIT])
+def test_rule_kernel_matches_reference(dtm_cases, case_id, params):
+    """Rule 向量化实现与 W1 参考拷贝的差分（breaks 逐位相等）。"""
+    params = dict(params)
+    ib = params.pop('initial_bins')
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, ib)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足 2 个')
+    _run_rule_pair(dtm, breaks, **params)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+@pytest.mark.parametrize('params', RULE_PARAMS_SLOW,
+                         ids=[_rule_id(p) for p in RULE_PARAMS_SLOW])
+def test_rule_kernel_matches_reference_heavy(dtm_cases, case_id, params):
+    """Rule 差分重用例（ib=100）。"""
+    params = dict(params)
+    ib = params.pop('initial_bins')
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, ib)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足 2 个')
+    _run_rule_pair(dtm, breaks, **params)
+
+
+def test_rule_monitor_bin_paths():
+    """监控分箱三分段路径：左尾坏率尖峰（下降分支）与右尾（提升分支）。"""
+    n = 2000
+    rng = np.random.default_rng(701)
+    v = np.round(rng.uniform(0, 10, n), 6)
+
+    # 左尾尖峰：拒绝极小值分支（bad_prob 下降）
+    y = rng.binomial(1, np.where(v < 1.0, 0.9, 0.05))
+    dtm = _dtm(v, y)
+    breaks0 = _initial_breaks(dtm, 50)
+    for kwargs in (dict(lift=3, pvalue=0.05),
+                   dict(lift=2, min_hit_samples=20)):
+        b = _run_rule_pair(dtm, breaks0, **kwargs)
+        assert len(list(b)) >= 2
+
+    # 右尾尖峰：拒绝极大值分支（bad_prob 提升）
+    y2 = rng.binomial(1, np.where(v > 9.0, 0.9, 0.05))
+    dtm2 = _dtm(v, y2)
+    breaks0b = _initial_breaks(dtm2, 50)
+    b2 = _run_rule_pair(dtm2, breaks0b, lift=3, pvalue=0.05)
+    assert len(list(b2)) >= 2
+
+    # 全路径（含监控分箱组装）
+    prod = ComposedWOEBin([QuantileInitBin(initial_bins=50),
+                           RuleOptimBin(lift=3, pvalue=0.05)])
+    ref = ComposedWOEBin([QuantileInitBin(initial_bins=50),
+                          RefRuleOptimBin(lift=3, pvalue=0.05)])
+    pd.testing.assert_frame_equal(prod(dtm.copy()), ref(dtm.copy()))
+    pd.testing.assert_frame_equal(prod(dtm2.copy()), ref(dtm2.copy()))
+
+
+def test_rule_no_valid_cut_returns_single_bin():
+    """无合格切点（lift 门失败）→ 两侧一致返回 [-inf, inf] 单箱。"""
+    rng = np.random.default_rng(702)
+    n = 500
+    v = np.round(rng.normal(size=n), 6)
+    y = rng.binomial(1, 0.3, n)   # 纯噪声：bad_prob_all ≈ 0.3，lift ≈ 1 < 3
+    dtm = _dtm(v, y)
+    breaks0 = _initial_breaks(dtm, 20)
+    prod_b = RuleOptimBin().woebin(dtm, breaks0)
+    ref_b = RefRuleOptimBin().woebin(dtm, breaks0)
+    assert list(prod_b) == [-np.inf, np.inf]
+    assert list(ref_b) == [-np.inf, np.inf]
+
+
+def test_rule_germancredit_categorical_matches_reference():
+    """germancredit 类别变量 Rule 差分（含 category-dtype 特殊形态）。"""
+    from test.conftest import GERMANCREDIT_FILE, require_data
+    require_data(GERMANCREDIT_FILE)
+    from syriskmodels.datasets import load_germancredit
+
+    df = load_germancredit()
+    cols = [
+        'foreign.worker',
+        'status.of.existing.checking.account',
+        'purpose',
+    ]
+    param_sets = [
+        dict(),
+        dict(lift=1.2, direction='good', pvalue=0.5),
+        dict(min_hit_samples=30, lift=1.5),
+    ]
+    for col in cols:
+        dtm = pd.DataFrame({
+            'variable': col,
+            'y': df['creditability'],
+            'value': df[col],
+        })
+        breaks0 = _initial_breaks(dtm, 20)
+        for kwargs in param_sets:
+            prod = RuleOptimBin(**kwargs)
+            ref = RefRuleOptimBin(**kwargs)
+            _assert_breaks_identical(prod.woebin(dtm, breaks0),
+                                     ref.woebin(dtm, breaks0))
+            prod_c = ComposedWOEBin(
+                [QuantileInitBin(initial_bins=20), RuleOptimBin(**kwargs)])
+            ref_c = ComposedWOEBin(
+                [QuantileInitBin(initial_bins=20), RefRuleOptimBin(**kwargs)])
+            pd.testing.assert_frame_equal(prod_c(dtm.copy()),
+                                          ref_c(dtm.copy()))

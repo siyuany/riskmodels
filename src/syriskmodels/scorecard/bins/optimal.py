@@ -280,66 +280,49 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         return new_binning.reset_index(drop=True)
 
     def woebin(self, dtm, breaks=None):
+        """执行规则分箱。
+
+        W2 Phase 5：切点搜索与监控分箱计算改为向量化精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.rule_cut_search`）：
+        累计计数/foil/lift 全部批量计算，``fisher_exact`` 只对通过
+        lift+min_hit_samples 前置门的候选调用（与 legacy 短路语义等价）；
+        direction、单调分支、监控分箱设置、最终 breaks（含类别型
+        category-dtype 特殊形态）语义与 legacy 逐位一致。
+        ``cut_binning`` 保留为公开方法（兼容），不再位于热路径。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
-        binning = self.initial_binning(dtm, breaks)
-        if binning.shape[0] < 2:
+        from syriskmodels.scorecard.core.kernels import (
+            rule_cut_search,
+            rule_segments,
+            segments_to_breaks,
+        )
+
+        table = self.initial_count_table(dtm, breaks)
+        if table.n_bins < 2:
             return [-np.inf, np.inf]
 
-        # 步骤1：寻找最优切点
-        cut_idx_metric = {}
-        for idx in range(binning.shape[0] - 1):
-            cut_idx_metric[idx] = self.cut_binning(
-                binning, idx)['foil'].max()
-        sorted_cut_idx_metric = sorted(
-            cut_idx_metric.items(), key=lambda x: -x[1])
-        best_cut_idx = sorted_cut_idx_metric[0][0]
-        best_cut_metric = sorted_cut_idx_metric[0][1]
+        count = table.count
+        ratios = count / count.sum()
 
-        # 步骤2：设置监控分箱
-        if best_cut_metric == 0:
+        result = rule_cut_search(
+            table.good,
+            table.bad,
+            ratios,
+            eps_lift=self._eps,
+            min_lift=self._min_lift,
+            min_hit_samples=self._min_hit_samples,
+            p_threshold=self._p,
+            direction=self._direction,
+        )
+        if result is None:
             # 无法找到最优切点
             return [-np.inf, np.inf]
-        else:
-            new_binning = self.cut_binning(binning, best_cut_idx)
-            binning['cum_count_distr'] = binning['count_distr'].cumsum()
-            # yapf: disable
-            if new_binning['bad_prob'].is_monotonic_decreasing:
-                # 坏率下降，拒绝极小值
-                reject_ratio = binning['count_distr'].iloc[best_cut_idx]
-                monitor_cut_idx = binning.index[
-                    binning['cum_count_distr'] >= min(
-                        reject_ratio + 0.05, 1)].min()
-                if np.isnan(monitor_cut_idx) or (
-                        monitor_cut_idx > binning.shape[0] - 2):
-                    monitor_cut_idx = np.inf
-            else:
-                # 坏率提升，拒绝极大值
-                reject_ratio = (
-                    1 - binning['cum_count_distr'].iloc[best_cut_idx])
-                monitor_cut_idx = binning.index[
-                    binning['cum_count_distr'] <= max(
-                        1 - reject_ratio - 0.05, 0)].max()
-                if np.isnan(monitor_cut_idx):
-                    monitor_cut_idx = -np.inf
-            # yapf: enable
 
-        cut_idx = np.sort(
-            np.unique([-np.inf, best_cut_idx, monitor_cut_idx, np.inf]))
-        binning['grp'] = pd.cut(binning.index, cut_idx)
-        best_binning = binning.groupby(
-            ['variable', 'grp'], observed=False
-        ).agg(
-            bin_chr=('bin_chr', lambda x: '%,%'.join(x.tolist())))
+        best_cut_idx, monitor_cut_idx = result
+        seg_bounds = rule_segments(best_cut_idx, monitor_cut_idx,
+                                   table.n_bins)
 
-        if is_numeric_dtype(dtm['value']):
-            best_binning['bin_chr'] = best_binning['bin_chr'].apply(
-                lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = best_binning['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
-        else:
-            breaks = best_binning['bin_chr']
-
-        return breaks
+        return segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds,
+            categories=table.categories)
