@@ -197,25 +197,32 @@ class WOEBin(ABC):
     @classmethod
     def binning(cls, dtm: pd.DataFrame, bin_chr: pd.Series) -> pd.DataFrame:
         """给定 dtm、分箱名序列生成 binning 统计表
-        
+
+        W2（Phase 2）向量化：旧实现对每个分组调用 Python lambda
+        （``_n0``/``_n1`` = ``np.sum(x == 0/1)``），改为布尔→int64 列 +
+        ``groupby.sum``（cython 聚合）。输出与旧实现完全一致：分组按
+        (variable, bin_chr) 排序、``observed=False`` 保留空类别、NaN 组键
+        被 groupby 丢弃、good/bad 为 int64。
+
         参数:
             dtm: 输入数据 (variable, y, value 三列)
-            bin_chr: 每个样本对应的分箱名称
-        
+            bin_chr: 每个样本对应的分箱名称（与 dtm 索引对齐的 Series）
+
         返回:
             binning DataFrame，包含 variable, bin_chr, good, bad 四列
         """
-        def _n0(x):
-            return np.sum(x == 0)
-        
-        def _n1(x):
-            return np.sum(x == 1)
-        
-        bin_chr = bin_chr.rename(index='bin_chr')
-        binning = dtm.groupby(['variable', bin_chr], observed=False)['y'].agg(
-            good=_n0, bad=_n1)
-        binning = binning.reset_index()
-        
+        tmp = pd.DataFrame({
+            'variable': dtm['variable'],
+            'bin_chr': bin_chr,
+            '_good': (dtm['y'] == 0).astype('int64'),
+            '_bad': (dtm['y'] == 1).astype('int64'),
+        })
+        binning = tmp.groupby(['variable', 'bin_chr'], observed=False)[
+            ['_good', '_bad']
+        ].sum().rename(
+            columns={'_good': 'good', '_bad': 'bad'}
+        ).reset_index()
+
         return binning
 
     @classmethod
@@ -540,6 +547,30 @@ class OptimBinMixin:
                 by='badprob', ascending=False).reset_index(drop=True)
         
         return binning
+
+    def initial_count_table(self, dtm, breaks):
+        """根据细分箱切分点生成粗分箱计数表（W2 Phase 2）。
+
+        返回 :class:`~syriskmodels.scorecard.core.counts.BinCountTable`，
+        行序与 ``initial_binning`` 输出**完全一致**（数值型按区间升序；
+        类别型按 badprob 降序）。Tree / ChiMerge / Rule 内核只依赖该结构，
+        不再在候选循环里操作原始 DataFrame。
+
+        参数:
+            dtm: 输入数据 (variable, y, value 三列)
+            breaks: 细分箱切分点
+
+        返回:
+            BinCountTable
+        """
+        from syriskmodels.scorecard.core.counts import BinCountTable
+
+        binning = self.initial_binning(dtm, breaks)
+        return BinCountTable.from_binning_df(
+            binning,
+            is_numeric=is_numeric_dtype(dtm['value']),
+            epsilon=self.epsilon,
+        )
 
 
 class ComposedWOEBin(WOEBin):
