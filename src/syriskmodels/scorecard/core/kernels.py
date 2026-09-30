@@ -43,6 +43,8 @@ __all__ = [
     'kahan_prefix_sums',
     'kahan_suffix_sums_batched',
     'tree_cut_search',
+    'chi2_pair_stats',
+    'chi2_merge_search',
     'segments_to_breaks',
 ]
 
@@ -256,6 +258,136 @@ def tree_cut_search(
         pos = int(np.searchsorted(bounds_arr, best_idx, side='right'))
         bounds.insert(pos, best_idx + 1)
         cp[best_idx] = True
+
+    return np.asarray(bounds, dtype='int64')
+
+
+# --------------------------------------------------------------------------- #
+# ChiMerge 内核
+# --------------------------------------------------------------------------- #
+
+def chi2_pair_stats(good: np.ndarray, bad: np.ndarray) -> np.ndarray:
+    """相邻分箱对 (i-1, i) 的 Yates 修正 χ² 数组（位置 0 为 NaN）。
+
+    与 legacy ``ChiMergeOptimBin.chi2_stat``（scipy
+    ``chi2_contingency(correction=True)``）逐位一致：
+
+    * 2×2 表为 ``[[good_i, bad_i], [good_{i-1}, bad_{i-1}]]``；
+    * 首行（无 lag，NaN）→ NaN；
+    * 行/列边际含 0 → 0.0（legacy 在调用 scipy 前显式短路）；
+    * 其余 = 闭式 Yates：``Σ max(0, |O-E|-0.5)² / E``，E 由边际外积/总和
+      得到；求和按 scipy 的 2×2 flatten（行主序）左结合次序
+      ``((t00+t01)+t10)+t11``。已用多组边界表（含过修正区 D<n/2 →
+      scipy 精确返回 0）与 scipy 输出逐位比对验证。计数为整数 →
+      边际与总和的浮点转换精确，结合序无关。
+    """
+    good = np.asarray(good)
+    bad = np.asarray(bad)
+    n = good.shape[0]
+    chi2 = np.full(n, np.nan, dtype='float64')
+    if n < 2:
+        return chi2
+
+    a = good[1:].astype('float64')    # good_i
+    b = bad[1:].astype('float64')     # bad_i
+    c = good[:-1].astype('float64')   # good_{i-1}
+    d = bad[:-1].astype('float64')    # bad_{i-1}
+
+    r0 = a + b
+    r1 = c + d
+    c0 = a + c
+    c1 = b + d
+    tot = r0 + r1
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        e00 = r0 * c0 / tot
+        e01 = r0 * c1 / tot
+        e10 = r1 * c0 / tot
+        e11 = r1 * c1 / tot
+        t00 = np.maximum(np.abs(a - e00) - 0.5, 0.0)
+        t01 = np.maximum(np.abs(b - e01) - 0.5, 0.0)
+        t10 = np.maximum(np.abs(c - e10) - 0.5, 0.0)
+        t11 = np.maximum(np.abs(d - e11) - 0.5, 0.0)
+        val = ((t00 * t00 / e00 + t01 * t01 / e01)
+               + t10 * t10 / e10) + t11 * t11 / e11
+
+    zero_marginal = (r0 == 0) | (r1 == 0) | (c0 == 0) | (c1 == 0)
+    chi2[1:] = np.where(zero_marginal, 0.0, val)
+    return chi2
+
+
+def chi2_merge_search(
+    good: np.ndarray,
+    bad: np.ndarray,
+    ratios: np.ndarray,
+    chi2_limit: float,
+    count_distr_limit: float,
+    bin_num_limit: int,
+) -> np.ndarray:
+    """ChiMergeOptimBin 合并循环的 NumPy 精确等价实现。
+
+    复刻 legacy 决策语义（逐条对应 W1 develop
+    ``ChiMergeOptimBin.woebin``）：
+
+    * 每轮重算全部相邻对 χ²（首行 NaN；``min`` 为 pandas skipna 语义，
+      即对 chi2[1:] 取最小；单分箱时 min=NaN → 各分支条件为 False）；
+    * 分支优先级：``min_chi2 < chi2_limit`` → 取 χ² 等于最小值的**首个**
+      行；否则 ``min_count_distr < count_distr_limit`` → 取 count_distr
+      最小值首行，且 ``idx == 0`` 或（``idx < n-1`` 且
+      ``chi2[idx] > chi2[idx+1]``）时 ``idx += 1``；否则
+      ``n_bins > bin_num_limit`` → 同分支一取最小 χ² 首行；否则终止；
+    * 合并：idx 并入 idx-1 —— good/bad 整数加法（精确）、count_distr
+      为**标量浮点左加**（复刻 legacy 增量维护的舍入路径，区别于
+      tree 的 Kahan 段和）、bin_chr 以 ``'%,%'`` 拼接（在组装层完成）；
+    * 数值型 bin_chr 的逐轮正则折叠只影响中间字符串，最终 breaks 恒为
+      各段末区间右边界（见 :func:`segments_to_breaks` 的等价性说明）。
+
+    参数:
+        good/bad: 初始计数表（int64）
+        ratios: 初始 count_distr（float64）
+        chi2_limit: ``chi2.isf(p, df=1)``
+        count_distr_limit/bin_num_limit: 同 legacy
+
+    返回:
+        seg_bounds: int64 数组 [0, b1, ..., k]
+    """
+    good = np.array(good, dtype='int64')
+    bad = np.array(bad, dtype='int64')
+    distr = np.array(ratios, dtype='float64')
+    k = int(good.shape[0])
+    bounds = list(range(k + 1))
+
+    chi2 = chi2_pair_stats(good, bad)
+
+    while True:
+        n = int(good.shape[0])
+        min_chi2 = float(np.min(chi2[1:])) if n >= 2 else np.nan
+        min_distr = float(np.min(distr))
+
+        if min_chi2 < chi2_limit:
+            # 分箱坏占比差异不显著（NaN < x 恒为 False，与 pandas 一致）
+            idx = 1 + int(np.argmin(chi2[1:]))
+        elif min_distr < count_distr_limit:
+            # 分箱占比过少
+            idx = int(np.argmin(distr))
+            if idx == 0 or (idx < n - 1 and chi2[idx] > chi2[idx + 1]):
+                idx = idx + 1
+        elif n > bin_num_limit:
+            # 分箱数太多
+            idx = 1 + int(np.argmin(chi2[1:]))
+        else:
+            break
+
+        # 合并 idx 到 idx-1（增量维护，与 legacy 标量运算逐位一致）
+        good[idx - 1] = good[idx - 1] + good[idx]
+        bad[idx - 1] = bad[idx - 1] + bad[idx]
+        distr[idx - 1] = distr[idx - 1] + distr[idx]
+        good = np.delete(good, idx)
+        bad = np.delete(bad, idx)
+        distr = np.delete(distr, idx)
+        del bounds[idx]
+
+        chi2 = chi2_pair_stats(good, bad)
 
     return np.asarray(bounds, dtype='int64')
 

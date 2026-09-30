@@ -181,6 +181,124 @@ class RefTreeOptimBin(_LegacyBinningMixin, WOEBin, _LegacyOptimBinMixin):
         return iv.sum()
 
 
+class RefChiMergeOptimBin(_LegacyBinningMixin, WOEBin, _LegacyOptimBinMixin):
+    """W1 develop ``bins/optimal.py::ChiMergeOptimBin`` 的逐字参考拷贝。"""
+
+    def __init__(self,
+                 bin_num_limit: int = 5,
+                 p: float = 0.05,
+                 count_distr_limit: float = 0.02,
+                 ensure_monotonic: bool = False,
+                 **kwargs):
+        from scipy.stats import chi2 as _chi2_dist
+        super().__init__(**kwargs)
+        self.bin_num_limit = bin_num_limit
+        self.p = p
+        self.count_distr_limit = count_distr_limit
+        self.ensure_monotonic = ensure_monotonic
+        self.chi2_limit = _chi2_dist.isf(p, df=1)
+
+    @staticmethod
+    def chi2_stat(binning):
+        from scipy.stats import chi2_contingency
+
+        binning['good_lag'] = binning['good'].shift(1)
+        binning['bad_lag'] = binning['bad'].shift(1)
+
+        def chi2_cont_tbl(arr):
+            if np.any(np.isnan(arr)):
+                return np.nan
+            elif np.any(np.sum(arr, axis=1) == 0) or np.any(np.sum(arr, axis=0) == 0):
+                return 0.0
+            else:
+                return chi2_contingency(arr, correction=True)[0]
+
+        binning['chi2'] = binning.apply(
+            lambda x: chi2_cont_tbl([[x['good'], x['bad']],
+                                      [x['good_lag'], x['bad_lag']]]),
+            axis=1
+        )
+        del binning['good_lag']
+        del binning['bad_lag']
+
+        return binning
+
+    def woebin(self, dtm, breaks=None):
+        assert breaks is not None, \
+            f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
+
+        binning = self.initial_binning(dtm, breaks)
+        binning_chi2 = self.chi2_stat(binning)
+        binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
+
+        # Start merge loop
+        while True:
+            min_chi2 = binning_chi2['chi2'].min()
+            min_count_distr = binning_chi2['count_distr'].min()
+            n_bins = len(binning_chi2)
+
+            if min_chi2 < self.chi2_limit:
+                # 分箱坏占比差异不显著
+                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
+            elif min_count_distr < self.count_distr_limit:
+                # 分箱占比过少
+                idx = binning_chi2[
+                    binning_chi2['count_distr'] == min_count_distr
+                ].index[0]
+                if idx == 0 or (idx < len(binning_chi2) - 1 and
+                               (binning_chi2['chi2'][idx]
+                                > binning_chi2['chi2'][idx + 1])):
+                    idx = idx + 1
+            elif n_bins > self.bin_num_limit:
+                # 分箱数太多
+                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
+            else:
+                # 结束合并操作
+                break
+
+            # 合并分箱
+            binning_chi2.loc[idx - 1, 'bin_chr'] = '%,%'.join([
+                binning_chi2.loc[idx - 1, 'bin_chr'],
+                binning_chi2.loc[idx, 'bin_chr']
+            ])
+            binning_chi2.loc[idx - 1, 'count'] = (
+                binning_chi2.loc[idx - 1, 'count'] +
+                binning_chi2.loc[idx, 'count'])
+            binning_chi2.loc[idx - 1, 'count_distr'] = (
+                binning_chi2.loc[idx - 1, 'count_distr'] +
+                binning_chi2.loc[idx, 'count_distr'])
+            binning_chi2.loc[idx - 1, 'good'] = (
+                binning_chi2.loc[idx - 1, 'good'] +
+                binning_chi2.loc[idx, 'good'])
+            binning_chi2.loc[idx - 1, 'bad'] = (
+                binning_chi2.loc[idx - 1, 'bad'] +
+                binning_chi2.loc[idx, 'bad'])
+
+            if pd.api.types.is_numeric_dtype(dtm['value']):
+                # 数值类型分箱合并: [a,b)%,%[b,c) -> [a,c)
+                binning_chi2['bin_chr'] = binning_chi2['bin_chr'].apply(
+                    lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
+
+            index = binning_chi2.index.tolist()
+            index.remove(idx)
+            binning_chi2 = binning_chi2.iloc[
+                index,
+            ].reset_index(drop=True)
+            binning_chi2 = self.chi2_stat(binning_chi2)
+        # End of loop
+
+        # 切分点提取
+        if pd.api.types.is_numeric_dtype(dtm['value']):
+            _pattern = re.compile(r"^\[(.*), *(.*)\)")
+            breaks = binning_chi2['bin_chr'].apply(
+                lambda x: _pattern.match(x)[2])
+            breaks = pd.to_numeric(breaks)
+        else:
+            breaks = binning_chi2['bin_chr']
+
+        return breaks
+
+
 # ============================================================================ #
 # 数据生成（固定种子；覆盖任务书要求的边界）
 # ============================================================================ #
@@ -561,3 +679,181 @@ def test_tree_germancredit_categorical_matches_reference():
                 [QuantileInitBin(initial_bins=20), RefTreeOptimBin(**kwargs)])
             pd.testing.assert_frame_equal(prod_c(dtm.copy()),
                                           ref_c(dtm.copy()))
+
+
+# ============================================================================ #
+# ChiMerge：生产 NumPy 内核 vs W1 参考拷贝
+# ============================================================================ #
+
+def _run_chi2_pair(dtm, breaks, **chi2_kwargs):
+    prod = ChiMergeOptimBin(**chi2_kwargs)
+    ref = RefChiMergeOptimBin(**chi2_kwargs)
+    b_prod = prod.woebin(dtm, breaks)
+    b_ref = ref.woebin(dtm, breaks)
+    _assert_breaks_identical(b_prod, b_ref)
+    return b_prod
+
+
+# 参考实现每轮对全部相邻对调用 scipy（O(k²)），ib≥100 的组合归入 slow
+CHI2_PARAMS_UNIT = [
+    dict(bin_num_limit=5, count_distr_limit=0.02, p=0.05, initial_bins=20),
+    dict(bin_num_limit=3, count_distr_limit=0.05, p=0.5, initial_bins=20),
+    dict(bin_num_limit=1, count_distr_limit=0.02, p=0.9, initial_bins=20),
+    dict(bin_num_limit=8, count_distr_limit=0.0, p=0.05, initial_bins=20),
+]
+CHI2_PARAMS_SLOW = [
+    dict(bin_num_limit=5, count_distr_limit=0.02, p=0.05, initial_bins=100),
+    dict(bin_num_limit=8, count_distr_limit=0.0, p=0.5, initial_bins=100),
+    dict(bin_num_limit=5, count_distr_limit=0.2, p=0.05, initial_bins=100),
+    dict(bin_num_limit=5, count_distr_limit=0.02, p=0.05, initial_bins=500),
+]
+
+
+def _chi2_id(p):
+    return (f"lim{p['bin_num_limit']}_cdl{p['count_distr_limit']}"
+            f"_p{p['p']}_ib{p['initial_bins']}")
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+@pytest.mark.parametrize('params', CHI2_PARAMS_UNIT,
+                         ids=[_chi2_id(p) for p in CHI2_PARAMS_UNIT])
+def test_chi2_kernel_matches_reference(dtm_cases, case_id, params):
+    """ChiMerge NumPy 内核与 W1 参考拷贝的差分（breaks 逐位相等）。"""
+    params = dict(params)
+    ib = params.pop('initial_bins')
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, ib)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足 2 个，无合并空间')
+    _run_chi2_pair(dtm, breaks, **params)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+@pytest.mark.parametrize('params', CHI2_PARAMS_SLOW,
+                         ids=[_chi2_id(p) for p in CHI2_PARAMS_SLOW])
+def test_chi2_kernel_matches_reference_heavy(dtm_cases, case_id, params):
+    """ChiMerge 差分重用例（ib=100/500；参考实现 O(k²) scipy 调用）。"""
+    params = dict(params)
+    ib = params.pop('initial_bins')
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, ib)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足 2 个，无合并空间')
+    _run_chi2_pair(dtm, breaks, **params)
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+def test_chi2_full_call_matches_reference(dtm_cases, case_id):
+    """全路径差分：chi2 的 woebin(__call__) 最终 DataFrame 全列一致。"""
+    dtm = dtm_cases[case_id]
+    kwargs = dict(bin_num_limit=4, count_distr_limit=0.02, p=0.05)
+    special = ['-999'] if case_id == 'num_missing_sentinel' else None
+
+    prod = ComposedWOEBin(
+        [QuantileInitBin(initial_bins=20), ChiMergeOptimBin(**kwargs)])
+    ref = ComposedWOEBin(
+        [QuantileInitBin(initial_bins=20), RefChiMergeOptimBin(**kwargs)])
+
+    res_prod = prod(dtm.copy(), special_values=special)
+    res_ref = ref(dtm.copy(), special_values=special)
+
+    if isinstance(res_ref, str):
+        assert res_prod == res_ref
+        return
+    pd.testing.assert_frame_equal(res_prod, res_ref)
+
+
+def test_chi2_germancredit_categorical_matches_reference():
+    """germancredit 类别变量 ChiMerge 差分（golden 场景的直接回归）。"""
+    from test.conftest import GERMANCREDIT_FILE, require_data
+    require_data(GERMANCREDIT_FILE)
+    from syriskmodels.datasets import load_germancredit
+
+    df = load_germancredit()
+    cols = [
+        'foreign.worker',
+        'other.debtors.or.guarantors',
+        'status.of.existing.checking.account',
+        'purpose',
+    ]
+    param_sets = [
+        dict(bin_num_limit=5),
+        dict(bin_num_limit=8, count_distr_limit=0.0),
+        dict(bin_num_limit=2, p=0.5, count_distr_limit=0.05),
+    ]
+    for col in cols:
+        dtm = pd.DataFrame({
+            'variable': col,
+            'y': df['creditability'],
+            'value': df[col],
+        })
+        breaks0 = _initial_breaks(dtm, 20)
+        for kwargs in param_sets:
+            prod = ChiMergeOptimBin(**kwargs)
+            ref = RefChiMergeOptimBin(**kwargs)
+            _assert_breaks_identical(prod.woebin(dtm, breaks0),
+                                     ref.woebin(dtm, breaks0))
+            prod_c = ComposedWOEBin(
+                [QuantileInitBin(initial_bins=20), ChiMergeOptimBin(**kwargs)])
+            ref_c = ComposedWOEBin(
+                [QuantileInitBin(initial_bins=20),
+                 RefChiMergeOptimBin(**kwargs)])
+            pd.testing.assert_frame_equal(prod_c(dtm.copy()),
+                                          ref_c(dtm.copy()))
+
+
+def test_chi2_numeric_negative_boundaries():
+    """负数区间边界：折叠正则失配场景下 breaks 提取仍逐位一致。"""
+    rng = np.random.default_rng(501)
+    n = 500
+    v = np.round(rng.normal(-50, 3, n), 6)   # 全负值区间
+    y = rng.binomial(1, 1 / (1 + np.exp(-(v + 50) / 3)))
+    dtm = _dtm(v, y)
+    breaks0 = _initial_breaks(dtm, 30)
+    for kwargs in (dict(bin_num_limit=5), dict(bin_num_limit=3, p=0.5)):
+        _run_chi2_pair(dtm, breaks0, **kwargs)
+
+
+def test_chi2_zero_marginal_pairs():
+    """全好/全坏相邻箱：列边际为 0 → χ²=0.0 短路路径。"""
+    n = 400
+    v = np.repeat(np.arange(8, dtype=float), 50)
+    y = np.concatenate([
+        np.zeros(200, dtype=int),   # 前 4 箱全好
+        np.ones(200, dtype=int),    # 后 4 箱全坏
+    ])
+    dtm = _dtm(v, y)
+    breaks0 = _initial_breaks(dtm, 8)
+    _run_chi2_pair(dtm, breaks0, bin_num_limit=5, count_distr_limit=0.0)
+    _run_chi2_pair(dtm, breaks0, bin_num_limit=2, count_distr_limit=0.02,
+                   p=0.5)
+
+
+def test_composed_quantile_tree_chi2_matches_reference():
+    """三级组合 [quantile, tree, chi2]：生产链 vs 全参考链输出一致。
+
+    覆盖 tree 输出的 breaks（含 category-dtype 特殊形态）作为 chi2 输入
+    的传播路径（initial_binning → set_categories → 行序 → badprob 排序）。
+    """
+    for seed, kind in ((601, 'num'), (602, 'cat')):
+        rng = np.random.default_rng(seed)
+        n = 600
+        if kind == 'num':
+            v = np.round(rng.normal(size=n), 6)
+        else:
+            v = rng.choice(['a', 'b', 'c', 'd', 'e', 'f'], n)
+        y = rng.binomial(1, 0.3, n)
+        dtm = _dtm(v, y)
+
+        prod = ComposedWOEBin([
+            QuantileInitBin(initial_bins=20),
+            TreeOptimBin(bin_num_limit=8, count_distr_limit=0.0),
+            ChiMergeOptimBin(bin_num_limit=4),
+        ])
+        ref = ComposedWOEBin([
+            QuantileInitBin(initial_bins=20),
+            RefTreeOptimBin(bin_num_limit=8, count_distr_limit=0.0),
+            RefChiMergeOptimBin(bin_num_limit=4),
+        ])
+        pd.testing.assert_frame_equal(prod(dtm.copy()), ref(dtm.copy()))

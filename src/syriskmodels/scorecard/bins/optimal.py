@@ -68,80 +68,42 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         return binning
 
     def woebin(self, dtm, breaks=None):
-        """执行 ChiMerge 分箱"""
+        """执行 ChiMerge 分箱。
+
+        W2 Phase 4：合并循环改为 NumPy 精确等价实现
+        （:func:`syriskmodels.scorecard.core.kernels.chi2_merge_search` +
+        :func:`~syriskmodels.scorecard.core.kernels.chi2_pair_stats`），
+        与 legacy pandas 实现（保留在 ``chi2_stat`` 及
+        test/test_binning_equivalence.py 的参考拷贝中）在 χ² 公式
+        （scipy Yates 修正闭式复刻）、三分支决策优先级、idx 修正规则、
+        tie-breaking（取最小索引）、count_distr 标量增量维护、
+        最终 breaks 提取等全部语义上逐位一致。
+        """
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
+        from syriskmodels.scorecard.core.kernels import (
+            chi2_merge_search,
+            segments_to_breaks,
+        )
 
-        binning = self.initial_binning(dtm, breaks)
-        binning_chi2 = self.chi2_stat(binning)
-        binning_chi2['bin_chr'] = binning_chi2['bin_chr'].astype('str')
+        table = self.initial_count_table(dtm, breaks)
+        count = table.count
+        # 与 legacy initial_binning 的 count_distr 列逐位一致
+        ratios = count / count.sum()
 
-        # Start merge loop
-        while True:
-            min_chi2 = binning_chi2['chi2'].min()
-            min_count_distr = binning_chi2['count_distr'].min()
-            n_bins = len(binning_chi2)
+        seg_bounds = chi2_merge_search(
+            table.good,
+            table.bad,
+            ratios,
+            chi2_limit=self.chi2_limit,
+            count_distr_limit=self.count_distr_limit,
+            bin_num_limit=self.bin_num_limit,
+        )
 
-            if min_chi2 < self.chi2_limit:
-                # 分箱坏占比差异不显著
-                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
-            elif min_count_distr < self.count_distr_limit:
-                # 分箱占比过少
-                idx = binning_chi2[
-                    binning_chi2['count_distr'] == min_count_distr
-                ].index[0]
-                if idx == 0 or (idx < len(binning_chi2) - 1 and
-                               (binning_chi2['chi2'][idx]
-                                > binning_chi2['chi2'][idx + 1])):
-                    idx = idx + 1
-            elif n_bins > self.bin_num_limit:
-                # 分箱数太多
-                idx = binning_chi2[binning_chi2['chi2'] == min_chi2].index[0]
-            else:
-                # 结束合并操作
-                break
-
-            # 合并分箱
-            binning_chi2.loc[idx - 1, 'bin_chr'] = '%,%'.join([
-                binning_chi2.loc[idx - 1, 'bin_chr'],
-                binning_chi2.loc[idx, 'bin_chr']
-            ])
-            binning_chi2.loc[idx - 1, 'count'] = (
-                binning_chi2.loc[idx - 1, 'count'] +
-                binning_chi2.loc[idx, 'count'])
-            binning_chi2.loc[idx - 1, 'count_distr'] = (
-                binning_chi2.loc[idx - 1, 'count_distr'] +
-                binning_chi2.loc[idx, 'count_distr'])
-            binning_chi2.loc[idx - 1, 'good'] = (
-                binning_chi2.loc[idx - 1, 'good'] +
-                binning_chi2.loc[idx, 'good'])
-            binning_chi2.loc[idx - 1, 'bad'] = (
-                binning_chi2.loc[idx - 1, 'bad'] +
-                binning_chi2.loc[idx, 'bad'])
-
-            if is_numeric_dtype(dtm['value']):
-                # 数值类型分箱合并: [a,b)%,%[b,c) -> [a,c)
-                binning_chi2['bin_chr'] = binning_chi2['bin_chr'].apply(
-                    lambda x: re.sub(r',[.\d]+\)%,%\[[.\d]+,', ',', x))
-
-            index = binning_chi2.index.tolist()
-            index.remove(idx)
-            binning_chi2 = binning_chi2.iloc[
-                index,
-            ].reset_index(drop=True)
-            binning_chi2 = self.chi2_stat(binning_chi2)
-        # End of loop
-
-        # 切分点提取
-        if is_numeric_dtype(dtm['value']):
-            _pattern = re.compile(r"^\[(.*), *(.*)\)")
-            breaks = binning_chi2['bin_chr'].apply(
-                lambda x: _pattern.match(x)[2])
-            breaks = pd.to_numeric(breaks)
-        else:
-            breaks = binning_chi2['bin_chr']
-
-        return breaks
+        # legacy ChiMerge 在入口即 bin_chr.astype('str')，最终 breaks 恒为
+        # str/float dtype（无 tree 的 category-dtype 语义），categories 传 None
+        return segments_to_breaks(
+            table.bin_chr, table.is_numeric, seg_bounds)
 
 
 @WOEBinFactory.register('tree')
