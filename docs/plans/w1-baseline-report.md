@@ -229,6 +229,11 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 > 后者是"golden 不可移植"，两者都是 W1 验收标准本身要求修好的）。每条都有可执行回归用例
 > （`test/test_known_bugs.py`，`xfail(strict=True)`：修复后用例变 XPASS → 失败，
 > 强制清理记录）。
+>
+> **W2 状态更新（2026-09-30）**：B-2..B-13 已全部在 `feature/w2-binning-kernel`
+> 处置完毕（fixed / deprecated+兼容导出），对应 xfail 已全部转为正向断言，
+> 详见 `docs/plans/w2-kernel-refactor-report.md` §1 状态表。下文各条目的
+> "目标阶段"行已同步更新。
 > 优先级：**P0** = 阻断主流程 / 结果错误；**P1** = 功能缺失 / 兼容性；
 > **P2** = 工程质量 / 安全加固。
 
@@ -253,7 +258,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | `bins_df.groupby('variable', observed=False).apply(_gb_distr)`：pandas 3 下 DataFrame 返回值的 `apply` **不再把分组键保留为列**（分组键只进 index）。实测 `apply(lambda x: x.assign(...))` 返回列不含 `variable` |
 | 影响 | `woebin_plot` 不可用；`build_scorecard` 主体跑通后仍整体失败（集成用例 `test_build_scorecard_pipeline` 因此 `xfail`） |
 | 建议修法 | `apply(...)` 后 `reset_index(level=0)`，或改用 `transform` / 显式 `merge` 回分组键 |
-| 目标阶段 | **W2 第一优先**（当前唯一阻断端到端流程的缺陷） |
+| 目标阶段 | **W2 已修复**（fix(pandas3) `f3cc8ab`；另修复 `_plot_single_bin` 引用不存在的 `bin_chr` 列——应为 `bin`；集成用例 xfail/witness 已移除） |
 
 ### B-3 `stepwise_lr(direction='forward'|'backward')` 返回 `(None, [])`（**P0**）
 
@@ -265,7 +270,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | 择优并更新 `selected_features` / `best_metrics` / `improved` 的整段代码被放在 `if direction in ['backward','bidirectional']` 分支内；`forward` 收集完 `perf_records` 后 `improved` 恒为 `False`，首轮 `break` |
 | 影响 | 单向逐步回归完全不可用（静默返回空结果，不报错）；`build_scorecard` 默认 `direction='bidirectional'` 未受影响 |
 | 建议修法 | 把择优块移出方向判断，方向仅控制"产生哪些候选" |
-| 目标阶段 | W2 |
+| 目标阶段 | **W2 已修复**（fix(models) `6b5ace0`；纯 backward 未给 initial_features 时从全量特征起步） |
 
 ### B-4 数值列 + 显式数值型 `special_values` 在 pandas 3 下报 ValueError（**P0**）
 
@@ -277,7 +282,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | `dtm.fillna("missing")` 使 object 化列 dtype 变 object，而 `sv_df['value']` 仍是 float64（或反向）；pandas 3 不再隐式放宽 object↔float 的 merge 键类型（pandas 2 会隐式转换） |
 | 影响 | `special_values=[-999, -1, ...]` 这一 README 主推用法在 pandas 3 下**整体不可用** |
 | 建议修法 | merge 前统一 `dtm_merge['value'] = dtm_merge['value'].astype(object)`（或双方 `.astype(str)`），保持 pandas 2 语义 |
-| 目标阶段 | **W2 第一优先**（与 B-2 并列） |
+| 目标阶段 | **W2 已修复**（fix(pandas3) `f3cc8ab`；split_special_values 重写为布尔掩码+映射，新增 golden `synthetic_numeric_special_values`） |
 
 ### B-5 整型列 + `'missing'` 特殊值在 pandas 3 下报 ValueError（**P0**）
 
@@ -289,7 +294,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | `sv_df['value'].astype(dtm['value'].dtypes)`：`split_vec_to_df` 对 `'missing'` 产出 `None`/NaN，对 int64 列执行 `astype(int64)` 直接抛错（pandas 3 不再静默截断 NaN→int） |
 | 影响 | 整型变量（如 `number.of.existing.credits.at.this.bank`）无法使用 `missing` 特殊值 |
 | 建议修法 | 仅在无 NaN 时 `astype`，否则保持 object/float dtype |
-| 目标阶段 | W2（与 B-4 同一处代码，建议一并修） |
+| 目标阶段 | **W2 已修复**（与 B-4 同 commit；int 列 + sv 含 NaN 时保持 float 语义，标签如 `-1.0`，golden `synthetic_integer_missing_special_value` 钉住） |
 
 ### B-6 `WOEBinFactory` 把全局 kwargs 透传给所有 binner（P1）
 
@@ -300,7 +305,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 位置 | `src/syriskmodels/scorecard/core/factory.py:122`（`get_binner(bin_cls, **kwargs)` 对列表中所有类别透传同一份 kwargs） |
 | 疑似原因 | 缺少"按分箱器类型过滤 kwargs"或"显式声明各自参数"的机制；README 描述的是"kwargs 传给各分箱方法"，实现却是无差别透传 |
 | 影响 | 组合 `rule` 时必须改写为类实例列表 |
-| 目标阶段 | W2 |
+| 目标阶段 | **W2 已修复**（fix(factory) `e3e64d7`；`_filter_kwargs_for` 按构造签名分发） |
 
 ### B-7 `RuleOptimBin.__init__` 不接受 / 不传递 `**kwargs`（P1）
 
@@ -311,7 +316,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 位置 | `src/syriskmodels/scorecard/bins/optimal.py:285-297` |
 | 疑似原因 | 未声明 `**kwargs`，且 `super().__init__()` **未传参**：基类 `eps` 默认 0.5 被丢弃，自身写死 `eps=1e-8`，与其它粗分箱类行为不一致 |
 | 影响 | 无法调 `eps`；与 B-6 共同导致 `rule` 无法通过字符串 methods 组合 |
-| 目标阶段 | W2 |
+| 目标阶段 | **W2 已修复**（fix(factory) `e3e64d7`；`**kwargs` 透传。注意 `eps` 保持历史含义（lift 平滑项），不转发基类以免改变默认输出——W2 报告 §6 决策 4） |
 
 ### B-8 `check_breaks_list` 使用 `eval`（P2，安全）
 
@@ -323,7 +328,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | 历史实现用 `eval` 支持"从配置文件读字符串形式的字典" |
 | 影响 | `breaks_list` 常来自外部配置，构成代码注入面 |
 | 建议修法 | 改 `ast.literal_eval`，保留"必须是字典"校验 |
-| 目标阶段 | W2（低风险、低工作量，建议顺手做） |
+| 目标阶段 | **W2 已修复**（fix(factory) `e3e64d7`；`ast.literal_eval`，非法表达式抛 ValueError） |
 
 ### B-9 `woebin_psi` 单侧缺失分箱时静默放大 PSI（**P0**，结果错误）
 
@@ -335,7 +340,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | 缺失分布未按 0 显式补齐，`psi()` 的 NaN→0 又被"重新归一化"二次放大 |
 | 影响 | 变量稳定性结论可能完全错误；`build_scorecard` 的 PSI 分析直接受影响 |
 | 建议修法 | `pivot_table` 后 `reindex` 到 bins 全集并 `fillna(0)`；或在 `psi()` 中显式校验并抛错而非静默填 0 |
-| 目标阶段 | **W2 第一优先**（正确性问题） |
+| 目标阶段 | **W2 已修复**（fix(pandas3) `f3cc8ab`；并集 reindex + 显式 fillna(0)，单侧缺失 UserWarning，psi() NaN 告警。注：W1 版回归用例误取 `bin.iloc[0]`=missing 箱致 cmp_df 为空，W2 已修正用例） |
 
 ### B-10 `build_scorecard` 使用 OOT 做变量筛选（P1，方法学泄漏）
 
@@ -347,7 +352,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | OOT 被当作"跨期一致性验证"用于特征选择，而 OOT 本应只在最终评估阶段使用 |
 | 影响 | OOT 不再是干净样本外集合，模型效果与 PSI 评估偏乐观 |
 | 建议修法 | 趋势一致性改在训练/验证集上做；若业务上确需 OOT，须在文档与报告中显式声明 |
-| 目标阶段 | W2（需业务确认，见第 6 节问题 3） |
+| 目标阶段 | **W2 已修复**（fix(methodology) `148d09e`；新增 `risk_consistency_dataset='valid'\|'oot'` 默认 `'valid'`，显式 `'oot'` 强制告警；维护者未要求保留 OOT 口径） |
 
 ### B-11 `mp.Pool` 默认并行不安全，且小数据更慢（P1）
 
@@ -361,7 +366,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 疑似原因 | 自动核数计算在数据很小时也返回 >1；`mp.Pool` 用模块级函数虽可 pickle，但 macOS/Windows 的 spawn 需要可导入的 `__main__`，交互式环境无法满足；无 `mp.get_context('fork')` 或 `__main__` 保护、无超时 |
 | 影响 | 交互式使用（大量用户的真实场景）会挂死；测试环境不确定性 |
 | W1 处置 | 所有测试与 benchmark **一律 `no_cores=1`**；`build_scorecard` 集成用例通过 `monkeypatch` 固定并行度 |
-| 目标阶段 | W2「性能重构」阶段一并设计（阈值化 + fork 上下文 + 交互式环境探测） |
+| 目标阶段 | **W2 已修复**（fix(parallel) `dbfbe2a`，独立 commit；默认 no_cores=1，显式 >1 用平台默认上下文 + with 清理 + 超时/错误传播，spawn+交互式自动回退串行并告警） |
 
 ### B-12 `binning_helpers` 与生产代码脱节（P2，工程风险）
 
@@ -372,7 +377,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 位置 | `src/syriskmodels/scorecard/utils/binning_helpers.py` vs 实际生产路径 `api/transform.woebin_breaks` + `core/base.WOEBin.binning_breaks` |
 | 疑似原因 | 重构遗留：新实现绕开了 helper，但 helper 与 `test/test_scorecard/test_binning_helpers.py`（30+ 断言）被保留 |
 | 影响 | ① 测试覆盖的是**死代码**，造成"分箱逻辑已被充分覆盖"的错觉；② 两套 `breaks` 语义不同（helper 返回右边界含 `inf`，生产返回分箱名字符串），后续重构易改错对象 |
-| 目标阶段 | W2 决策：接入生产路径，或标注 deprecated 并删除（连同其测试） |
+| 目标阶段 | **W2 已处置**（`6b3978c`，方案 b：`__deprecated__` 标记 + DeprecationWarning + 兼容导出保留；测试重定位为兼容层稳定性 + 与生产重叠语义一致性钉住；W2 报告 §6 决策 5） |
 
 ### B-13 `test/test_scorecard/conftest.py` fixture 定义缺陷（P2）
 
@@ -382,7 +387,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 位置 | `test/test_scorecard/conftest.py:24-45`（`df['constant'] = 999` 等） |
 | 现状 | 当前无测试消费这些 fixture，因此**未暴露**；属潜伏缺陷 |
 | 建议 | 改为 `def data_with_constant_var(clean_data): ...` 依赖注入；W1 未改动（不在允许改动范围的必要项内，且要避免"顺手改测试语义"） |
-| 目标阶段 | W2 |
+| 目标阶段 | **W2 已修复**（`6b3978c`；5 个 fixture 改 DI，`data_with_mixed_types` 另修 pandas 3 str dtype 写入问题；新增 `test_conftest_fixtures.py` 13 个消费者用例 + 静态守卫） |
 
 ### B-14 合成测试数据的跨平台可移植性（P1，**已在 W1 修复**）
 
@@ -423,6 +428,11 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 ---
 
 ## 6. W2 建议
+
+> **W2 完成注记**：本节全部优先级项（P0-1..P2-3）与 §6.2 性能重构护栏
+> 均已在 `feature/w2-binning-kernel` 落地，结果见
+> `docs/plans/w2-kernel-refactor-report.md`（性能：tree ib100 56x、
+> chi2 ib100 33x，golden 逐位不变）。
 
 ### 6.1 建议优先级
 
