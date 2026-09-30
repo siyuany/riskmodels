@@ -12,8 +12,14 @@ htmlcov/
 .idea/
 .DS_Store
 docs/
+plans/
 .sisyphus/
 pytest.ini
 meta/
 *.bak
 test/*.csv.gz
+
+# 虚拟环境（统一使用 ~/.venvs/jep，仓库内不应出现 venv）
+venv/
+.venv/
+env/
