@@ -87,7 +87,10 @@ PYTHONHASHSEED=0 ~/.venvs/jep/bin/python bench/run_all.py --include-ib500  # 含
 ```
 
 **数据前提**：`data/germancredit.csv.gz`（17 KB）、`data/creditcard.csv.gz`（65 MB）
-不入版本库。缺失时相关用例 `skip` 并在报告中说明原因，不会以 `FileNotFoundError` 报错。
+**已随 Git 跟踪入库**（W2 勘误：本节早期版本误写为"不入版本库"），干净克隆即可
+运行全部集成/golden 用例。`require_data` 的 skip 逻辑仅作为兜底护栏：数据被
+人为移除或 `SYRISKMODELS_DATA_DIR` 指向空目录时，相关用例 `skip` 并说明原因，
+不会以 `FileNotFoundError` 报错。
 
 ---
 
@@ -102,7 +105,7 @@ PYTHONHASHSEED=0 ~/.venvs/jep/bin/python bench/run_all.py --include-ib500  # 含
 | `-m "not slow"`（unit / CI unit job） | 不适用（无 marker） | **114 passed, 10 xfailed, 8 deselected**（17.0s） |
 | `-m "slow"`（CI integration job） | 不适用 | **7 passed, 1 xfailed**（42.5s，含 creditcard 全量） |
 | `-m "golden"` | 无 | **12 passed**（4.2s） |
-| 无数据集时（模拟干净克隆） | 7 failed | `-m "not slow"`：95 passed, 19 skipped；`-m "slow"`：8 skipped（退出码 0）；golden：7 passed, 5 skipped |
+| 无数据集时（人为移除数据的兜底场景；数据实际已入库） | 7 failed | `-m "not slow"`：95 passed, 19 skipped；`-m "slow"`：8 skipped（退出码 0）；golden：7 passed, 5 skipped |
 
 > 关键点：无数据集时**合成数据 golden 用例仍然执行**（7 passed），只有
 > 依赖 germancredit 的 5 个 golden 测试 skip —— 干净克隆不会丢掉全部护栏。
@@ -184,7 +187,7 @@ RNG 内核、跨架构不同位（详见 B-14）。修复后 CI 转绿，见下�
 ## 3. 性能基线
 
 基线文件：[`bench/results/baseline_20260930.json`](../../bench/results/baseline_20260930.json)
-（`bench/results/*` 已 gitignore，需要入库时 `git add -f`）
+（`bench/results/*` 被 gitignore，该文件已通过 `git add -f` 入库跟踪）
 
 **方法**：1 次 warmup（不计入）+ 3 次计时取**中位数**；全部 `no_cores=1`；
 creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现）。
@@ -412,7 +415,7 @@ creditcard 用**确定性 head 抽样**（不做随机抽样，保证可复现�
 | 基准 | `bench/common.py`、`bench/bench_binning.py`、`bench/bench_ply.py`、`bench/run_all.py` | 公共工具 + 两个基准 + 一键脚本 |
 | 基准产物 | `bench/results/baseline_20260930.json` | 8 个用例的中位数基线（本地，已 gitignore） |
 | 忽略规则 | `.gitignore` | `bench/results/*`（保留 `.gitkeep`） |
-| 报告 | `docs/plans/w1-baseline-report.md` | 本文档（`docs/` 被 gitignore，本地留存） |
+| 报告 | `docs/plans/w1-baseline-report.md` | 本文档（`docs/` 被 gitignore，本文件经 `git add -f` 入库跟踪） |
 
 **`src/` 改动：无。** W1 未发现"测试不可运行所必需的极小修复"，
 所有缺陷一律记录 + `xfail` 回归用例。
