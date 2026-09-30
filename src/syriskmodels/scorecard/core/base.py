@@ -81,66 +81,117 @@ class WOEBin(ABC):
     
     @classmethod
     def split_special_values(
-        cls, 
-        dtm: pd.DataFrame, 
+        cls,
+        dtm: pd.DataFrame,
         spl_val: Optional[List]
     ) -> Dict[str, Optional[pd.DataFrame]]:
         """拆分特殊值和非特殊值数据
-        
+
+        W2 重构（B-4 / B-5）：不再通过 ``fillna("missing") + merge`` 匹配特殊值
+        —— pandas 3 下 object↔float64 的 merge 键直接抛 ``ValueError``（B-4），
+        ``astype(int)`` 也不再允许 NaN（B-5）。改为**布尔掩码 + 值→bin_chr
+        映射**，语义与 pandas 2 时代保持一致：
+
+        * ``'missing'`` 条目匹配 NaN 行，bin_chr 为原条目字符串；
+        * 数值列：特殊值字符串解析为数值后与原始值做数值相等匹配；
+          bin_chr 标签沿用 legacy 规则 —— 原列为整数 dtype 且特殊值不含
+          NaN 时为 ``str(int(v))``（与旧 ``astype(原dtype)`` 的截断一致），
+          否则为 ``str(float(v))``（如 ``-999.0``）；含 NaN 的整数列保持
+          float 语义（B-5，旧实现在此路径直接抛错，无 legacy 行为可保留）；
+          组合条目（``'3%,%4'``）按 legacy 语义拆分为独立分箱
+          （bin_chr 为单个数值的字符串形式）；
+        * 类别列：特殊值字符串与原始值直接相等匹配，组合条目整体作为一个
+          bin_chr；
+        * 非特殊值部分 ``dtm_ns`` 的 ``value`` 保持原 dtype（旧实现经
+          fillna+merge 后再 ``astype`` 还原，两者结果一致）。
+
         参数:
             dtm: 输入数据 (variable, y, value 三列)
             spl_val: 特殊值列表
-        
+
         返回:
-            字典 {'dtm_sv': 特殊值数据，'dtm_ns': 非特殊值数据}
+            字典 {'dtm_sv': 特殊值数据（含 bin_chr/rowid 列，索引为原始 idx），
+                  'dtm_ns': 非特殊值数据（索引为原始 idx）}
         """
+        dtm = dtm.copy()
         dtm['idx'] = dtm.index
         spl_val = cls.add_missing_spl_val(dtm, spl_val)
-        
-        if spl_val is not None:
-            sv_df = cls.split_vec_to_df(spl_val)
-            
-            # 数值型变量特殊处理
-            if is_numeric_dtype(dtm['value']):
-                sv_df['value'] = sv_df['value'].astype(dtm['value'].dtypes)
-                sv_df['bin_chr'] = np.where(
-                    np.isnan(sv_df['value']), 
-                    sv_df['bin_chr'],
-                    sv_df['value'].astype(str)
-                )
-            
-            # 数据拆分
-            dtm_merge = pd.merge(
-                dtm.fillna("missing"),
-                sv_df[['value', 'rowid']].fillna("missing"),
-                how='left',
-                on='value'
-            )
-            dtm_sv = dtm_merge[~dtm_merge['rowid'].isna()][
-                dtm.columns.tolist()].reset_index(drop=True)
-            dtm_ns = dtm_merge[dtm_merge['rowid'].isna()][
-                dtm.columns.tolist()].reset_index(drop=True)
-            
-            if len(dtm_ns) == 0:
-                dtm_ns = None
-            else:
-                dtm_ns['value'] = dtm_ns['value'].astype(dtm['value'].dtypes)
-            
-            if dtm_sv.shape[0] == 0:
-                dtm_sv = None
-            else:
-                dtm_sv = pd.merge(
-                    dtm_sv.fillna('missing'), sv_df.fillna('missing'), on='value')
+
+        if spl_val is None:
+            dtm_ns = dtm.set_index(dtm['idx'], drop=True)
+            return {'dtm_sv': None, 'dtm_ns': dtm_ns}
+
+        sv_df = cls.split_vec_to_df(spl_val)
+        value_col = dtm['value']
+        is_num = is_numeric_dtype(value_col)
+
+        n = len(dtm)
+        nan_mask = value_col.isna().to_numpy()
+        matched = np.zeros(n, dtype=bool)
+        match_bin = np.empty(n, dtype=object)
+        match_rowid = np.empty(n, dtype='float64')
+
+        sv_values = sv_df['value'].tolist()       # str；'missing' → NaN
+        sv_bin_chrs = sv_df['bin_chr'].tolist()   # 原始条目字符串
+        sv_rowids = sv_df['rowid'].tolist()
+
+        if is_num:
+            original_dtype = value_col.dtype
+            # 与旧 astype 行为一致：非数值字符串抛 ValueError
+            sv_num = [np.nan if pd.isna(v) else float(v) for v in sv_values]
+            has_nan_sv = any(np.isnan(v) for v in sv_num)
+            # B-5：仅当特殊值不含 NaN 且原列为整数 dtype 时才回落整数语义
+            as_int = (not has_nan_sv) and pd.api.types.is_integer_dtype(
+                original_dtype)
+            # 统一转为 float64 做数值相等匹配（整数在 2^53 内精确表示；
+            # 同时兼容 nullable Int64 等扩展 dtype）
+            arr = value_col.to_numpy(dtype='float64', na_value=np.nan)
+
+            for v, bin_name, rowid in zip(sv_num, sv_bin_chrs, sv_rowids):
+                if np.isnan(v):
+                    m = nan_mask                    # 'missing' 条目
+                    label = bin_name
+                else:
+                    if as_int:
+                        # 截断语义与旧 astype(int) 一致
+                        v = float(int(v))
+                        label = str(int(v))
+                    else:
+                        label = str(float(v))
+                    m = (arr == v) & ~nan_mask
+                match_bin[m] = label
+                match_rowid[m] = float(rowid)
+                matched |= m
+        else:
+            arr_obj = value_col.to_numpy(dtype=object)
+            for v, bin_name, rowid in zip(sv_values, sv_bin_chrs, sv_rowids):
+                if pd.isna(v):
+                    m = nan_mask                    # 'missing' 条目
+                else:
+                    m = (arr_obj == v) & ~nan_mask
+                match_bin[m] = bin_name
+                match_rowid[m] = float(rowid)
+                matched |= m
+
+        if matched.any():
+            dtm_sv = dtm.loc[matched].copy()
+            dtm_sv['bin_chr'] = match_bin[matched]
+            dtm_sv['rowid'] = match_rowid[matched]
+            # 与 legacy 一致：特殊值部分的 NaN value 记为 'missing'（object 化）
+            sv_nan = dtm_sv['value'].isna()
+            if sv_nan.any():
+                dtm_sv['value'] = dtm_sv['value'].astype(object)
+                dtm_sv.loc[sv_nan, 'value'] = 'missing'
+            dtm_sv = dtm_sv.set_index(dtm_sv['idx'], drop=True)
         else:
             dtm_sv = None
-            dtm_ns = dtm.copy()
-        
-        if dtm_sv is not None:
-            dtm_sv = dtm_sv.set_index(dtm_sv['idx'], drop=True)
-        
-        if dtm_ns is not None:
+
+        if (~matched).any():
+            dtm_ns = dtm.loc[~matched].copy()
             dtm_ns = dtm_ns.set_index(dtm_ns['idx'], drop=True)
-        
+        else:
+            dtm_ns = None
+
         return {'dtm_sv': dtm_sv, 'dtm_ns': dtm_ns}
     
     @classmethod
@@ -291,6 +342,9 @@ class WOEBin(ABC):
         # 预处理原始值
         dtm = dtm.copy()
         dtm['value'] = replace_blank_string(dtm['value'])
+        # W2（B-4/B-5 重构）：split_special_values 不再原地给调用方帧添加
+        # 'idx' 列，这里显式自建（后续 merge 依赖该列对齐原始行）
+        dtm['idx'] = dtm.index
 
         # 拆分特殊值 / 非特殊值
         split_dtm = cls.split_special_values(dtm, special_values)

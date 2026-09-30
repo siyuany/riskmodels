@@ -99,25 +99,20 @@ def test_b1_no_hardcoded_csv_paths_in_tests():
 
 
 # --------------------------------------------------------------------------- #
-# B-2 pandas 3 下 woebin_plot 抛 KeyError: 'variable'
+# B-2 pandas 3 下 woebin_plot 抛 KeyError: 'variable'（W2 已修复）
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-2: pandas 3 的 groupby.apply 不再把分组键保留为列，"
-           "woebin_plot 中 bins_df['variable'] 抛 KeyError",
-)
 def test_b2_woebin_plot_works(synthetic_df):
-    """B-2：``woebin_plot`` 应能对 woebin 结果生成图像。
+    """B-2（已修复）：``woebin_plot`` 应能对 woebin 结果生成图像。
 
-    现象：``KeyError: 'variable'``
-    位置：``src/syriskmodels/scorecard/api/evaluation.py:181-184``
-    根因：``bins_df.groupby('variable', observed=False).apply(_gb_distr)``
-          返回的 DataFrame 在 pandas 3 下丢失分组列（分组键只进 index），
-          后续 ``bins_df['variable']`` 失败。
-          已实测：``pandas=3.0.6`` 下 ``apply(lambda x: x.assign(...))``
-          返回列不含 'variable'。
-    影响：``woebin_plot`` 与 ``build_scorecard`` 尾部绘图全流程不可用。
+    历史缺陷：``bins_df.groupby('variable', observed=False).apply(_gb_distr)``
+    在 pandas 3 下不再把分组键保留为列（分组键只进 index），后续
+    ``bins_df['variable']`` 抛 ``KeyError``；且 ``_plot_single_bin`` 引用了
+    woebin 输出中不存在的 ``bin_chr`` 列（实际列名为 ``bin``）。
+
+    W2 修复：改用 ``groupby(...).transform('sum')`` 向量化计算
+    good_distr/bad_distr（不再依赖 apply 的分组列行为），x 轴刻度改用
+    ``bin`` 列。图形语义不变。
     """
     frame = _synthetic()
     bins = _bins(frame, ['num_a', 'num_b', 'cat_a'])
@@ -133,6 +128,8 @@ def test_b2_woebin_plot_works(synthetic_df):
 
     assert isinstance(plots, dict)
     assert set(plots) == {'num_a', 'num_b', 'cat_a'}
+    for fig in plots.values():
+        assert fig is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -187,22 +184,18 @@ def _numeric_special_values_frame() -> pd.DataFrame:
     })
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-4: pandas 3 下 pd.merge(object, float64) 直接 ValueError，"
-           "数值列 + 显式数值型 special_values 无法分箱",
-)
 def test_b4_numeric_special_values_binning():
-    """B-4：数值列传入数值型 ``special_values``（如 ``['-999']``）应能分箱。
+    """B-4（已修复）：数值列传入数值型 ``special_values``（如 ``['-999']``）应能分箱。
 
-    现象：``ValueError: You are trying to merge on float64 and object columns
-          for key 'value'.``
-    位置：``src/syriskmodels/scorecard/core/base.py:113-118``
-    根因：``dtm.fillna("missing")`` 把 NaN 引入后使 object 化列的 dtype 变为
-          object，而 ``sv_df['value']`` 仍是 float64（或反之）；pandas 3 不再
-          隐式放宽 object/float 的 merge 键类型（pandas 2 可隐式转换）。
-    影响：``woebin(special_values=[-999, -1, ...])`` 这一**文档化的主推用法**
-          在 pandas 3 下整体不可用。
+    历史缺陷：``ValueError: You are trying to merge on float64 and object
+    columns for key 'value'``。根因是 ``split_special_values`` 中
+    ``dtm.fillna("missing")`` 与 ``sv_df`` 的 merge 键 dtype 不一致
+    （pandas 3 不再隐式放宽 object↔float 的 merge 键类型）。
+
+    W2 修复：特殊值拆分不再经过 fillna+merge，改为布尔掩码 + 值→bin_chr
+    映射；NaN、特殊值、数值区间分箱语义与 pandas 2 一致。
+    修复后的输出边界另由 golden 快照钉住（见 test_golden_binning.py 的
+    ``synthetic_numeric_special_values`` 用例）。
     """
     frame = _numeric_special_values_frame()
     result = woebin(
@@ -214,36 +207,104 @@ def test_b4_numeric_special_values_binning():
     assert isinstance(bins, pd.DataFrame)
     assert bool(bins['is_special_values'].any())
 
+    sv_bins = bins[bins['is_special_values']]
+    # -999 哨兵值单独成箱；数据中无 NaN，'missing' 条目不产生分箱
+    assert sv_bins['bin'].tolist() == ['-999.0']
+    assert int(sv_bins['count'].iloc[0]) == int((frame['num_b'] == -999.0).sum())
+    # 非特殊值部分正常区间分箱，且总数守恒
+    ns_bins = bins[~bins['is_special_values']]
+    assert len(ns_bins) > 0
+    assert int(bins['count'].sum()) == len(frame)
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-5: pandas 3 下 astype(int) 遇到 'missing' 填出的 NaN 抛 "
-           "ValueError: cannot convert float NaN to integer",
-)
+
+def test_b4_numeric_special_values_edge_cases():
+    """B-4 边界：多特殊值 / 组合特殊值 / float 列含 NaN。"""
+    rng = np.random.default_rng(23)
+    n = 400
+    value = np.where(rng.random(n) < 0.1, -999.0, rng.normal(size=n))
+    value[10:20] = -1.0          # 第二个哨兵值
+    value[20:25] = np.nan        # 缺失
+    frame = pd.DataFrame({'v': value, 'target': rng.binomial(1, 0.3, n)})
+
+    # 多特殊值 + missing：各自单独成箱
+    result = woebin(
+        frame, y='target', x=['v'], methods=['quantile'],
+        initial_bins=10, special_values={'v': ['-999', '-1', 'missing']},
+        no_cores=1,
+    )
+    bins = result['v']
+    sv = bins[bins['is_special_values']]
+    assert set(sv['bin']) == {'missing', '-999.0', '-1.0'}
+    assert int(sv.loc[sv['bin'] == 'missing', 'count'].iloc[0]) == 5
+    assert int(sv.loc[sv['bin'] == '-999.0', 'count'].iloc[0]) == int(
+        (frame['v'] == -999.0).sum())
+    assert int(sv.loc[sv['bin'] == '-1.0', 'count'].iloc[0]) == 10
+    assert int(bins['count'].sum()) == n
+
+    # 组合特殊值在数值列上按 legacy 语义拆分为独立分箱（'0%,%1' → '0.0' 与 '1.0'）
+    frame2 = pd.DataFrame({
+        'v2': rng.integers(0, 9, n).astype(float),
+        'target': rng.binomial(1, 0.3, n),
+    })
+    result2 = woebin(
+        frame2, y='target', x=['v2'], methods=['quantile'],
+        initial_bins=5, special_values={'v2': ['0%,%1']}, no_cores=1,
+    )
+    sv2 = result2['v2'][result2['v2']['is_special_values']]
+    assert set(sv2['bin']) == {'0.0', '1.0'}
+
+
 def test_b5_integer_column_special_values_binning():
-    """B-5：整型列传入数值型特殊值应能分箱。
+    """B-5（已修复）：整型列传入 ``missing`` 等特殊值应能分箱。
 
-    现象：``ValueError: cannot convert float NaN to integer``
-    位置：``src/syriskmodels/scorecard/core/base.py:104-105``
-    根因：``sv_df['value'].astype(dtm['value'].dtypes)`` 中，若
-          ``special_values`` 含 ``'missing'``，``split_vec_to_df`` 会产出
-          ``None``/NaN，对 int64 列执行 ``astype(int64)`` 直接抛错
-          （pandas 3 不再允许 NaN → int 的静默截断）。
-    影响：整型变量（如 ``number.of.existing.credits``）无法使用 ``missing``
-          特殊值。
+    历史缺陷：``ValueError: cannot convert float NaN to integer``。根因是
+    ``sv_df['value'].astype(原 int dtype)`` 对 ``'missing'`` 产出的 NaN 执行
+    int 转换（pandas 3 不再允许 NaN → int）。
+
+    W2 修复：特殊值仅在**不含 NaN** 时才 astype 回原整型 dtype；含 NaN 时
+    保持 float 语义（整型列 + 'missing' 时数值特殊值标签为 float 形式，
+    如 ``-1.0``；该新行为由 golden 快照
+    ``synthetic_integer_missing_special_value`` 钉住）。
     """
     rng = np.random.default_rng(12)
     n = 400
+    value = rng.integers(0, 5, n)
+    value[30:40] = -1
     frame = pd.DataFrame({
-        'num_c': rng.integers(0, 5, n),
+        'num_c': value,
         'target': rng.binomial(1, 0.3, n),
     })
+    # 整型列本身无 NaN，但 special_values 含 'missing' → sv 值集合含 NaN
     result = woebin(
         frame, y='target', x=['num_c'], methods=['quantile', 'tree'],
         initial_bins=20, bin_num_limit=5,
         special_values={'num_c': ['-1', 'missing']}, no_cores=1,
     )
-    assert isinstance(result['num_c'], pd.DataFrame)
+    bins = result['num_c']
+    assert isinstance(bins, pd.DataFrame)
+    sv = bins[bins['is_special_values']]
+    assert sv['bin'].tolist() == ['-1.0']
+    assert int(sv['count'].iloc[0]) == 10
+    assert int(bins['count'].sum()) == n
+
+
+def test_b5_integer_column_with_nan_and_missing():
+    """B-5 边界：含 NaN 的数值列 + 'missing' 特殊值。"""
+    rng = np.random.default_rng(34)
+    n = 300
+    value = rng.integers(0, 6, n).astype(float)
+    value[:20] = np.nan
+    frame = pd.DataFrame({'v': value, 'target': rng.binomial(1, 0.25, n)})
+    result = woebin(
+        frame, y='target', x=['v'], methods=['quantile', 'tree'],
+        initial_bins=10, bin_num_limit=4,
+        special_values={'v': ['missing']}, no_cores=1,
+    )
+    bins = result['v']
+    sv = bins[bins['is_special_values']]
+    assert sv['bin'].tolist() == ['missing']
+    assert int(sv['count'].iloc[0]) == 20
+    assert int(bins['count'].sum()) == n
 
 
 # --------------------------------------------------------------------------- #
@@ -335,43 +396,65 @@ def test_b8_check_breaks_list_rejects_non_literal_expressions():
 # B-9 woebin_psi 在一侧缺失分箱时静默给出错误 PSI
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-9: 一侧缺失分箱时 cmp_distr 为 NaN，psi() 用 0 填充后重归一化，"
-           "同一变量的所有分箱都得到同一个偏大的 PSI 值",
-)
 def test_b9_woebin_psi_one_sided_bins_are_not_silently_inflated(synthetic_df):
-    """B-9：比较集缺少某个分箱时，PSI 不应在所有行上静默放大。
+    """B-9（已修复）：比较集缺少某个分箱时，PSI 应有限、可解释。
 
-    现象：比较集里只出现 ``cat_a`` 的一个类别时，
-          ``cmp_distr`` 对该变量的多数分箱为 ``NaN``；
-          ``evaluate.psi`` 内部 ``np.where(np.isnan(x), 0, x)`` 把 NaN 当 0
-          处理再重新归一化，导致该变量**每一行**都得到同一个偏大的 PSI
-          （实测约 4.897，而正常量级应 < 1）。
-    位置：``src/syriskmodels/scorecard/api/evaluation.py:48-70``
-          （``pd.pivot_table`` 后 ``tmp.columns = ['base','cmp']`` 未区分列名，
-          缺失一侧直接变成 NaN）
-          与 ``src/syriskmodels/evaluate.py:171-193``（``psi`` 的 NaN→0）。
-    风险：变量稳定性结论完全错误，且没有任何告警。
+    历史缺陷：``pd.pivot_table`` 后 ``tmp.columns = ['base','cmp']`` 未区分
+    缺失侧 → ``cmp_distr`` 出现 NaN；``evaluate.psi`` 把 NaN 当 0 再重新
+    归一化，同一变量的所有分箱得到同一个被静默放大的 PSI。
+    （另注：W1 版本的本用例误取 ``bin.iloc[0]``——那是 'missing' 特殊值箱，
+    导致 cmp_df 为空、断言路径根本到不了 PSI；W2 改为取真实类别箱。）
+
+    W2 修复：``woebin_psi`` 对两侧分箱计数取**并集** reindex，缺失侧显式
+    fillna(0) 后归一化；正常场景（两侧分箱齐全）输出与修复前一致；
+    ``evaluate.psi`` 收到 NaN 时给出显式告警。
     """
+    from syriskmodels.evaluate import psi as psi_fn
+
     frame = _synthetic(n=800)
     bins = _bins(frame, ['cat_a', 'num_a'])
 
     base = frame.iloc[:400]
     tail = frame.iloc[400:].copy()
-    keep = bins['cat_a']['bin'].iloc[0].split('%,%')
+
+    # 取一个非特殊值的真实类别箱，让比较集只覆盖它 → 其余分箱单侧缺失
+    cat_bins = bins['cat_a']
+    keep_bin = cat_bins.loc[~cat_bins['is_special_values'], 'bin'].iloc[0]
+    keep = keep_bin.split('%,%')
     cmp_df = tail[tail['cat_a'].isin(keep)]
     assert len(cmp_df) > 0
 
     result = woebin_psi(base, cmp_df, bins)
     cat_psi = result[result['variable'] == 'cat_a']
 
-    # 期望：每个分箱都有自己的分布，PSI 是变量级稳定的有限值
+    # 缺失侧显式补 0：明细中不应出现 NaN 分布
     assert cat_psi['cmp_distr'].notna().all(), 'PSI 明细中不应出现 NaN 分布'
-    assert cat_psi['psi'].nunique() == 1, '同一个变量的 PSI 应只有一个取值'
-    assert cat_psi['psi'].iloc[0] < 1.0, (
-        f"单侧缺失分箱导致 PSI 被放大到 {cat_psi['psi'].iloc[0]:.4f}"
-    )
+    assert cat_psi['base_distr'].notna().all()
+    # 单侧缺失的分箱 cmp_distr 应为 0（补零），而非 NaN
+    missing_bins = set(cat_bins['bin']) - {keep_bin}
+    zero_rows = cat_psi[cat_psi['bin'].isin(missing_bins)]
+    assert len(zero_rows) > 0
+    assert (zero_rows['cmp_distr'] == 0).all()
+    # 同一个变量只有一个 PSI 取值，且有限
+    assert cat_psi['psi'].nunique() == 1
+    psi_value = float(cat_psi['psi'].iloc[0])
+    assert np.isfinite(psi_value)
+    # 可解释：与"对表中显式分布直接调用 psi()"的结果一致（无隐藏的二次放大）
+    expected = psi_fn(cat_psi['base_distr'].to_numpy(),
+                      cat_psi['cmp_distr'].to_numpy())
+    assert psi_value == pytest.approx(float(expected), rel=1e-12)
+    # 极端单侧缺失应提示显著不稳定（超过 0.25 的常用警戒线）
+    assert psi_value > 0.25
+
+    # 正常场景回归：两侧分箱齐全时 PSI 应为小值（分布来自同一生成过程）
+    perm = np.random.default_rng(7).permutation(len(frame))
+    base_n = frame.iloc[perm[:400]]
+    cmp_n = frame.iloc[perm[400:]]
+    result_n = woebin_psi(base_n, cmp_n, bins)
+    cat_psi_n = result_n[result_n['variable'] == 'cat_a']
+    assert cat_psi_n['cmp_distr'].notna().all()
+    assert (cat_psi_n['cmp_distr'] > 0).all(), '随机对半分割下两侧分箱应齐全'
+    assert float(cat_psi_n['psi'].iloc[0]) < 0.25
 
 
 # --------------------------------------------------------------------------- #
