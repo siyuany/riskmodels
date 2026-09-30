@@ -1451,3 +1451,50 @@ def test_auto_engine_selects_numba_at_scale():
     ref_chi2 = RefChiMergeOptimBin(bin_num_limit=5)
     _assert_breaks_identical(prod_chi2.woebin(dtm, breaks0),
                              ref_chi2.woebin(dtm, breaks0))
+
+
+def test_chi2_rule_user_breaks_with_empty_bins():
+    """chi2/rule：用户指定 breaks 制造空分箱（count=0 → χ²=0 短路 /
+    bad_prob NaN / lift 除零路径）差分一致。"""
+    rng = np.random.default_rng(801)
+    n = 400
+    v = np.round(rng.uniform(0, 1, n), 6)
+    y = rng.binomial(1, 0.3, n)
+    dtm = _dtm(v, y)
+    # 数据只在 [0,1]：(-10,-5] 与 [5,10) 区间为空分箱
+    breaks = [-np.inf, -5.0, 0.25, 0.5, 0.75, 5.0, np.inf]
+
+    for kwargs in (dict(bin_num_limit=5, count_distr_limit=0.0),
+                   dict(bin_num_limit=3, count_distr_limit=0.01, p=0.5)):
+        _run_chi2_pair(dtm, breaks, **kwargs)
+
+    for kwargs in (dict(lift=3, pvalue=0.05),
+                   dict(lift=1.2, pvalue=0.5, direction='good')):
+        _run_rule_pair(dtm, breaks, **kwargs)
+
+
+def test_single_row_and_two_bin_degenerate_tables():
+    """退化表边界：单分箱 / 两分箱输入下 tree/chi2/rule 差分一致。"""
+    # 单值变量（quantile 只产出 1 个箱 → 内核退化路径）
+    dtm1 = _dtm(np.ones(50), np.tile([0, 1], 25))
+    breaks1 = _initial_breaks(dtm1, 20)
+    if len(breaks1) >= 2:
+        for kwargs in (dict(bin_num_limit=5),):
+            prod = TreeOptimBin(**kwargs)
+            ref = RefTreeOptimBin(**kwargs)
+            _assert_breaks_identical(prod.woebin(dtm1, breaks1),
+                                     ref.woebin(dtm1, breaks1))
+
+    # 两个唯一值
+    dtm2 = _dtm(np.array([0.0, 1.0] * 40), np.tile([0, 0, 1, 1], 20))
+    breaks2 = _initial_breaks(dtm2, 20)
+    for Prod, Ref, kwargs in [
+        (TreeOptimBin, RefTreeOptimBin, dict(bin_num_limit=5)),
+        (TreeOptimBin, RefTreeOptimBin,
+         dict(bin_num_limit=1, ensure_monotonic=True)),
+        (ChiMergeOptimBin, RefChiMergeOptimBin, dict(bin_num_limit=1)),
+        (RuleOptimBin, RefRuleOptimBin, dict(lift=1.1, pvalue=0.9)),
+    ]:
+        _assert_breaks_identical(
+            Prod(**kwargs).woebin(dtm2, breaks2),
+            Ref(**kwargs).woebin(dtm2, breaks2))
