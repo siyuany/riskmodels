@@ -136,23 +136,22 @@ def test_b2_woebin_plot_works(synthetic_df):
 # B-3 stepwise_lr direction='forward' / 'backward' 返回 (None, [])
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B-3: 择优循环被写在 if direction in ['backward','bidirectional'] "
-           "分支内，forward/backward 方向永不更新 best_metrics",
-)
 @pytest.mark.parametrize('direction', ['forward', 'backward'])
 def test_b3_stepwise_lr_single_direction_selects_features(synthetic_df, direction):
-    """B-3：单向逐步回归应至少选出非空特征集合。
+    """B-3（已修复）：单向逐步回归应至少选出非空特征集合。
 
-    现象：``stepwise_lr(direction='forward')`` 与 ``'backward'`` 均返回
-          ``(None, [])``；``'bidirectional'`` 正常返回 ``(float, [...])``。
-    位置：``src/syriskmodels/models.py:130-159``
-    根因：``perf_records`` 在 forward 分支收集，但"择优并更新
-          ``selected_features`` / ``best_metrics`` / ``improved``"的整个代码块
-          被包在 ``if direction in ['backward', 'bidirectional']`` 内
-          （models.py:145-152）。forward/backward 方向下 ``improved`` 恒为
-          ``False``，首轮即 ``break``，返回初始的 ``(None, [])``。
+    历史缺陷：``stepwise_lr(direction='forward')`` 与 ``'backward'`` 均返回
+    ``(None, [])``；``'bidirectional'`` 正常。根因是"择优并更新
+    ``selected_features`` / ``best_metrics`` / ``improved``"的整段代码被包在
+    ``if direction in ['backward', 'bidirectional']`` 分支内，且候选生成只在
+    ``forward/bidirectional`` 分支 —— forward 收集完候选后 ``improved`` 恒为
+    ``False`` 首轮即 break；backward 则根本不产生候选。
+
+    W2 修复：把"生成候选"与"择优更新"拆开，direction 只控制候选集合
+    （forward=加入候选；backward=剔除候选；bidirectional=两者），择优更新
+    对三种方向一致生效；纯 backward 未指定 ``initial_features`` 时从全量
+    特征集起步（经典后向消除），并以当前集合的指标为基线，只有严格改进
+    才接受剔除。
     """
     frame = _synthetic()
     x = ['num_a', 'num_b', 'num_c']
@@ -167,6 +166,37 @@ def test_b3_stepwise_lr_single_direction_selects_features(synthetic_df, directio
     assert best_metrics is not None
     assert isinstance(best_metrics, float)
     assert len(selected) > 0
+    assert set(selected) <= {c + '_woe' for c in x}
+
+
+def test_b3_stepwise_lr_direction_semantics(synthetic_df):
+    """B-3 补充：三种 direction 的语义约束。
+
+    * bidirectional 保持修复前行为（返回非空合理结果）；
+    * backward + initial_features：结果是 initial 的子集（只剔除不加入）；
+    * forward：结果是候选池子集（只加入不剔除，从空集起步）。
+    """
+    frame = _synthetic()
+    x = ['num_a', 'num_b', 'num_c']
+    xw = [c + '_woe' for c in x]
+    for col in x:
+        frame[col + '_woe'] = frame[col].fillna(frame[col].median())
+
+    m_bi, sel_bi = stepwise_lr(frame, y='target', x=xw, cv=2,
+                               direction='bidirectional')
+    assert isinstance(m_bi, float) and len(sel_bi) > 0
+
+    m_bw, sel_bw = stepwise_lr(frame, y='target', x=xw, cv=2,
+                               direction='backward', initial_features=xw[:2])
+    assert isinstance(m_bw, float)
+    assert set(sel_bw) <= set(xw[:2])
+    assert len(sel_bw) > 0
+
+    m_fw, sel_fw = stepwise_lr(frame, y='target', x=xw, cv=2,
+                               direction='forward')
+    assert isinstance(m_fw, float)
+    assert set(sel_fw) <= set(xw)
+    assert len(sel_fw) > 0
 
 
 # --------------------------------------------------------------------------- #

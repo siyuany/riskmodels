@@ -88,7 +88,16 @@ def stepwise_lr(df: pd.DataFrame,
     max_num_features: 最大入选特征数量，默认 30
     initial_features: 初始特征列表（强制入选），默认 None
     direction: 搜索方向，可选 ``'forward'``、``'backward'``、``'bidirectional'``，
-      默认 ``'bidirectional'``
+      默认 ``'bidirectional'``。方向只控制每轮**生成哪些候选**：
+
+      - ``'forward'``: 候选 = 当前集合加入一个池内特征（从空集/initial 起步）
+      - ``'backward'``: 候选 = 当前集合剔除一个特征；未指定 ``initial_features``
+        时从**全量特征集**起步（经典后向消除），并以当前集合的指标为基线，
+        只有严格改进才接受剔除（W2/B-3）
+      - ``'bidirectional'``: 候选 = 加入 + 剔除（行为与历史版本一致）
+
+      择优更新逻辑对三种方向一致生效（B-3 修复：旧实现把择优块误放在
+      backward/bidirectional 分支内，forward/backward 单向搜索永远返回空）。
     **lr_kwargs: 传递给 ``sklearn.linear_model.LogisticRegression`` 的参数
 
   返回:
@@ -125,31 +134,43 @@ def stepwise_lr(df: pd.DataFrame,
     auc = lr_cv.fit_and_eval(df[feature_list].to_numpy(), df[y])
     return auc
 
+  # B-3：纯 backward 以"当前集合"的指标为基线 —— 未指定 initial_features 时
+  # 从全量特征集起步（经典后向消除），只有严格改进才接受剔除。
+  if direction == 'backward' and len(selected_features) > 0:
+    best_metrics = get_features_perf(selected_features)
+  elif direction == 'backward' and len(feature_pool) > 0:
+    selected_features = list(x)
+    best_metrics = get_features_perf(selected_features)
+    feature_pool = [f for f in x if f not in selected_features]
+
   step = 0
   while True:
     perf_records = {}
     improved = False
     step += 1
 
+    # ---- 候选生成：direction 只控制候选集合 ----
     if direction in ['forward', 'bidirectional']:
       for feature in feature_pool:
         train_features = selected_features + [feature]
         perf_records[tuple(train_features)] = get_features_perf(train_features)
 
+    if direction in ['backward', 'bidirectional']:
       if len(selected_features) > 1:
         for feature in selected_features:
           train_features = selected_features.copy()
           train_features.remove(feature)
           perf_records[tuple(train_features)] = get_features_perf(train_features)
 
-    if direction in ['backward', 'bidirectional']:
-      for key, value in perf_records.items():
-        if best_metrics is None or (best_metrics < value and
-                                    len(key) <= max_num_features):
-          selected_features = list(key)
-          best_metrics = value
-          improved = True
-          feature_pool = [f for f in x if f not in selected_features]
+    # ---- 择优更新：与 direction 无关（B-3 修复前该块被误放在
+    # backward/bidirectional 分支内，导致单向搜索永不更新） ----
+    for key, value in perf_records.items():
+      if best_metrics is None or (best_metrics < value and
+                                  len(key) <= max_num_features):
+        selected_features = list(key)
+        best_metrics = value
+        improved = True
+        feature_pool = [f for f in x if f not in selected_features]
 
     if improved:
       logging.info(f'Step {step}:\nSelected features: {selected_features}\n'
