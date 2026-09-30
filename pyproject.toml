@@ -27,6 +27,36 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+# 开发/测试依赖：pip install -e '.[dev]'
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "openpyxl",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/siyuany/riskmodels"
 "Bug Tracker" = "https://github.com/siyuany/riskmodels/issues"
+
+[tool.pytest.ini_options]
+# 配置集中在此文件，不新建 pytest.ini（该文件已被 .gitignore 忽略）
+testpaths = ["test"]
+# 注意：addopts 刻意不加默认 -m，避免“隐藏测试”。
+# slow 用例由使用方显式选择：pytest -m "not slow" / pytest -m "slow"
+addopts = "-ra"
+markers = [
+    "slow: 依赖大数据集或长耗时的用例（creditcard 全量、大 initial_bins 等）",
+    "integration: 端到端集成用例（真实数据集 + 完整分箱/评分卡流程）",
+    "golden: 与 test/golden/*.json 快照严格比对的回归用例",
+]
+# 显式声明告警策略：全部保留为 "default"（每条 warning 都出现在摘要中），
+# 便于看到 pandas 3 等升级带来的 Deprecation/FutureWarning diff。
+# 不使用 -W ignore / filterwarnings = ["ignore"] / "error" —— 前者掩盖差异，
+# 后者会把第三方库告警变成失败，两者都会让"问题"与"噪音"一起消失。
+filterwarnings = [
+    "default::DeprecationWarning",
+    "default::FutureWarning",
+    "default::RuntimeWarning",
+    "default::UserWarning",
+]
