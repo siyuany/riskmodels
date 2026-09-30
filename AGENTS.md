@@ -69,6 +69,42 @@ source ~/.venvs/jep/bin/activate
 
 禁止直接向 `main` 或 `develop` 提交功能代码；`main` 只接收来自 `release/*` / `hotfix/*` 的合并。
 
+### 远程分支与推送约定（强制）
+
+- 远程仓库只保留：
+  - `main`（生产）
+  - `develop`（集成分支）
+  - `release/*`（发布分支）
+  - `hotfix/*`（紧急修复）
+  - 发布 tag
+
+- `feature/*`、`bugfix/*` 是**本地工作分支**，默认禁止 `git push`。
+  禁止使用 `git push --all`、`git push --mirror` 等会批量推送功能分支的命令。
+
+- 功能/修复完成后的标准流程：
+
+  ```bash
+  # 1. 本地完成开发与提交
+  # 2. 回到 develop 合并
+  git checkout develop
+  git merge --no-ff feature/<name>
+
+  # 3. 合并后必须本地全量验证
+  ~/.venvs/jep/bin/python -m pytest test/ -q
+
+  # 4. 验证通过后只推 develop
+  git push origin develop
+
+  # 5. 删除本地功能分支
+  git branch -d feature/<name>
+  ```
+
+- 如确需远程协作或 merge 前 CI 预验证，必须由维护者明确同意后，才可临时
+  推送 feature/bugfix 分支；验证完成后立即删除对应远程分支。
+
+- CI 默认只在 `develop` / `main` push、`release/*` / `hotfix/*` push，
+  以及外部 PR 上运行；功能分支的本地开发以“本地全量测试”为门禁。
+
 ### 提交信息
 
 采用 Conventional Commits：`<type>(<scope>): <description>`
