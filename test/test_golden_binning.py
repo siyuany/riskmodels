@@ -66,51 +66,113 @@ UPDATE_GOLDEN = os.environ.get('UPDATE_GOLDEN') == '1'
 # --------------------------------------------------------------------------- #
 
 def _synthetic_frame() -> pd.DataFrame:
-    """固定种子合成数据：数值 + 类别 + 缺失 + 特殊值 + 常量 + 超多类别。
+    """合成数据：数值 + 类别 + 缺失 + 特殊值 + 常量 + 超多类别。
 
-    索引为 ``range(1000)``，列顺序固定，保证多次生成的 ``value`` 序列逐元素相同。
+    可移植性要求（重要）
+    --------------------
+    本函数**只用整数算术与精确可表示的浮点运算**，不调用 ``np.random.*`` 的
+    RNG 内核，也不使用 ``exp``/``log``/``normal`` 等超越函数。原因：
+
+    相同 seed 下 ``Generator.standard_normal`` / ``binomial`` / ``lognormal``
+    在不同 CPU 架构（macOS arm64 vs Linux x86_64）会走不同 SIMD 内核并产生
+    **不同位序列**。实测在 CI（ubuntu x86_64）上，RNG 生成的 ``num_signal``
+    与本地 arm64 逐位不同，导致 tree/chi2 分箱结果分歧，
+    ``synthetic_quantile_chi2_ib20_limit5`` 在 3 个 CI job 上全数失败。
+
+    因此这里的数据由行号推导（``%``/``//`` 与 1/2^k 缩放，均为 IEEE-754 精确
+    运算），在任意平台上逐位一致；快照里的 ``data_fingerprint`` 会前置校验
+    这一点（见 :func:`_data_fingerprint`）。
+
+    索引为 ``range(1000)``，列顺序固定。
     """
-    rng = np.random.default_rng(20240501)
     n = 1000
+    idx = np.arange(n, dtype=np.int64)
 
-    num_score = rng.normal(0, 1, n)
-    logit = 1.1 * num_score + 0.8 * (rng.random(n) < 0.4)
-    y = rng.binomial(1, 1 / (1 + np.exp(-logit)))
-
-    category = rng.choice(
-        ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta'],
-        size=n,
-        p=[0.26, 0.2, 0.16, 0.12, 0.09, 0.07, 0.06, 0.04],
-    )
-
+    # 三个数值变量：全部由行号整数推导，1/32 与 1/64 均为二进制精确小数
+    base = (idx * 7 % 101) * 3
     df = pd.DataFrame({
-        'num_normal': np.round(num_score, 6),
-        'num_skewed': np.round(rng.lognormal(0, 1.2, n), 6),
-        'num_discrete': rng.integers(0, 6, n),
-        'cat_ok': category,
-        'target': y,
+        'num_normal': (base - 150) / 32.0,                     # 范围约 [-4.6, 4.6]
+        'num_skewed': 625.0 + (idx * 13 % 619),                # 整数值，范围 [625, 1243]
+        'num_discrete': (idx * 5 % 6).astype(np.int64),        # 离散 0..5
     })
 
-    # 缺失：数值列与类别列各有空值
-    df.loc[df.index[:60], 'num_normal'] = np.nan
-    df.loc[df.index[60:100], 'cat_ok'] = np.nan
+    # 类别变量：整数 → 类别标签，8 个类别（其中 cat5 用于特殊值演示）
+    category = np.array([f'cat{c}' for c in (idx * 3 % 8).tolist()], dtype=object)
+    df['cat_ok'] = category
 
-    # 特殊值：-999（数值哨兵）、'unknown'（类别哨兵）
-    df.loc[df.index[100:160], 'num_skewed'] = -999.0
-    df.loc[df.index[160:200], 'num_discrete'] = -1
-    df.loc[df.index[200:240], 'cat_ok'] = 'unknown'
+    # 缺失：数值列与类别列各有空值（隐式 'missing' 特殊值路径）
+    df.loc[:59, 'num_normal'] = np.nan
+    df.loc[60:99, 'cat_ok'] = np.nan
+
+    # 特殊值：-999（数值哨兵）、-1（整型哨兵）、'unknown'（类别哨兵）
+    df.loc[100:159, 'num_skewed'] = -999.0
+    df.loc[160:199, 'num_discrete'] = -1
+    df.loc[200:239, 'cat_ok'] = 'unknown'
 
     # 常量列（应被识别为 CONST 并跳过）
     df['const_int'] = 7
 
     # 超多类别列（默认 max_cate_num=50 → TOO_MANY_VALUES）
-    df['many_cats'] = [f'c{i:04d}' for i in range(n)]
+    df['many_cats'] = np.array([f'c{i:04d}' for i in range(n)], dtype=object)
 
-    # 信号变量：与 target 强相关，供 tree/chi2 有切分空间
-    df['num_signal'] = np.round(2.2 * num_score + rng.normal(0, 0.6, n), 6)
+    # 信号变量：与 target 相关，供 tree/chi2 有切分空间。
+    # 用独立于 num_normal 的推导方式，避免两列完全共线。
+    signal = (idx * 11 % 97) * 2 + (idx % 7)
+    df['num_signal'] = signal / 32.0
+
+    # target：确定性生成（不使用 RNG），并留出不参与任何特征的抖动分量，
+    # 保证好坏样本不会在某个分箱里被完美分开（否则 WOE 全部落在 epsilon 上）。
+    jitter = (idx * 29 % 1024) / 1024.0
+    threshold = ((signal - 90.0) / 32.0) + jitter - 0.5
+    df['target'] = (threshold > 0).astype(np.int64)
 
     return df[['num_normal', 'num_skewed', 'num_discrete', 'cat_ok',
                'const_int', 'many_cats', 'num_signal', 'target']]
+
+
+#: 合成数据列顺序（指纹与快照共用，避免两处漂移）
+FINGERPRINT_COLUMNS = [
+    'num_normal', 'num_skewed', 'num_discrete', 'cat_ok',
+    'const_int', 'many_cats', 'num_signal', 'target',
+]
+
+
+def _column_checksum(series: pd.Series) -> str:
+    """单列内容指纹：CRC32 over 每行 ``repr`` 的规范化拼接。
+
+    用 CRC32 而非 sha256/md5：这里是**确定性自检**（catch 数据漂移），
+    不是安全用途；短摘要便于人工核对快照内容。
+
+    逐行 ``repr``：``repr(float)`` 输出最短往返表示，跨平台一致；
+    ``NaN`` 统一写成 ``nan``，不依赖 pandas/numpy 的内部表示。
+    """
+    import zlib
+
+    parts = []
+    for value in series.tolist():
+        if value is None:
+            parts.append('none')
+        elif isinstance(value, float):
+            parts.append('nan' if value != value else repr(value))
+        else:
+            parts.append(repr(value))
+    payload = '\x1f'.join(parts).encode('utf-8')
+    return format(zlib.crc32(payload) & 0xFFFFFFFF, '08x')
+
+
+def _data_fingerprint(frame: pd.DataFrame) -> Dict[str, Any]:
+    """整表指纹：列顺序 + 行数 + 每列 CRC32。
+
+    作为快照的**前置校验**：若生成器在别的平台上产出了不同数据，
+    校验会立刻失败并直接指出是哪一列，而不是抛出一大坨分箱 diff。
+    """
+    return {
+        'n_rows': int(frame.shape[0]),
+        'columns': list(frame.columns),
+        'column_checksums': {
+            column: _column_checksum(frame[column]) for column in frame.columns
+        },
+    }
 
 
 def _germancredit_frame() -> pd.DataFrame:
@@ -393,6 +455,7 @@ def _run_dataset(dataset: str, frame: pd.DataFrame) -> GoldenRun:
         'dataset': dataset,
         'float_digits': FLOAT_DIGITS,
         'snapshot_columns': SNAPSHOT_COLUMNS,
+        'data_fingerprint': _data_fingerprint(frame),
         'cases': results,
     }
     return GoldenRun(dataset=dataset, results=results, payload=payload)
@@ -433,12 +496,13 @@ def test_golden_binning_case_germancredit(case, germancredit_golden):
 
 
 def _check_golden_case(case: Dict[str, Any], run: GoldenRun) -> None:
-    """单用例比对：先确认用例跑通，再与快照严格相等比较。"""
+    """单用例比对：先校验数据指纹，再确认用例跑通，最后严格相等比较。"""
     assert run.dataset == case['dataset']
     actual = run.results[case['name']]
 
-    # 进入快照比对前先确认用例本身跑通：避免"快照记录了一个错误"被当成通过。
+    # 前置校验：数据指纹 + 用例成功状态。
     # （已知失败路径不在本文件覆盖，见 test_known_bugs.py）
+    _assert_fingerprint_matches(run)
     _assert_case_ok(case['name'], actual)
 
     if UPDATE_GOLDEN:
@@ -459,6 +523,48 @@ def _check_golden_case(case: Dict[str, Any], run: GoldenRun) -> None:
     assert actual == expected, _diff_message(case['name'], expected, actual)
 
 
+def _assert_fingerprint_matches(run: GoldenRun) -> None:
+    """校验快照里记录的数据指纹与当前生成/加载的数据一致。
+
+    这一步专门用来把"数据生成不可移植"和"分箱行为变化"两类失败区分开：
+    前者会在这里立刻失败并指出是哪一列，后者才会进入分箱 diff。
+    历史教训：第一版合成数据用 RNG 内核生成，在 Linux x86_64 上与 macOS arm64
+    逐位不同，导致 CI 上只有分箱 diff 可看，根因被埋在一大坨 JSON 里。
+    """
+    if UPDATE_GOLDEN:
+        return
+    try:
+        snapshot = _load_snapshot(run.dataset)
+    except Exception:
+        return  # 快照缺失时由后续 _load_snapshot 给出更明确的提示
+    expected = snapshot.get('data_fingerprint')
+    if expected is None:
+        pytest.fail(
+            f'快照 {_snapshot_path(run.dataset)} 缺少 data_fingerprint 字段；'
+            f'请 UPDATE_GOLDEN=1 重新生成'
+        )
+    actual = run.payload['data_fingerprint']
+    if actual == expected:
+        return
+
+    detail = []
+    if actual['n_rows'] != expected['n_rows']:
+        detail.append(f"行数 {expected['n_rows']} -> {actual['n_rows']}")
+    if actual['columns'] != expected['columns']:
+        detail.append(f"列  {expected['columns']} -> {actual['columns']}")
+    for column in expected['column_checksums']:
+        exp = expected['column_checksums'][column]
+        act = actual['column_checksums'].get(column, '<missing>')
+        if exp != act:
+            detail.append(f'列 {column}: checksum {exp} -> {act}')
+    pytest.fail(
+        f'{run.dataset} 数据指纹不匹配（数据生成不可移植或数据已变更）：\n  '
+        + '\n  '.join(detail)
+        + f'\n若是生成器变更，执行 UPDATE_GOLDEN=1 重新生成快照；'
+          f'若是平台差异，请把生成器改为不依赖 RNG 内核/超越函数的确定性实现。'
+    )
+
+
 def _assert_case_ok(case_name: str, result: Dict[str, Any]) -> None:
     """确认 golden 用例成功执行（status == 'ok'）。"""
     if result.get('status') != 'ok':
@@ -476,6 +582,7 @@ def test_golden_snapshot_matches_all_cases(dataset, request):
     run = request.getfixturevalue(f'{dataset}_golden')
     assert run.dataset == dataset
 
+    _assert_fingerprint_matches(run)
     for name in run.results:
         _assert_case_ok(name, run.results[name])
 
