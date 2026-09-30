@@ -28,6 +28,9 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         p: 独立性检验显著性，默认 0.05
         count_distr_limit: 最小分箱样本占比，默认 0.02
         ensure_monotonic: 是否要求单调，默认 False（暂不支持）
+        engine: 计算后端 ``'auto'`` | ``'numpy'`` | ``'numba'``（W2 Phase 7），
+            默认 ``'auto'``（按问题规模选择；numba 不可用自动回退）。
+            两种后端输出**逐位一致**（差分测试保证）。
     """
 
     def __init__(self,
@@ -35,12 +38,14 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
                  p: float = 0.05,
                  count_distr_limit: float = 0.02,
                  ensure_monotonic: bool = False,
+                 engine: str = 'auto',
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.p = p
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
+        self.engine = engine
         self.chi2_limit = chi2.isf(p, df=1)
 
     @staticmethod
@@ -87,6 +92,7 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
         from syriskmodels.scorecard.core.kernels import (
             chi2_merge_search,
+            resolve_engine,
             segments_to_breaks,
         )
 
@@ -95,14 +101,26 @@ class ChiMergeOptimBin(WOEBin, OptimBinMixin):
         # 与 legacy initial_binning 的 count_distr 列逐位一致
         ratios = count / count.sum()
 
-        seg_bounds = chi2_merge_search(
-            table.good,
-            table.bad,
-            ratios,
-            chi2_limit=self.chi2_limit,
-            count_distr_limit=self.count_distr_limit,
-            bin_num_limit=self.bin_num_limit,
-        )
+        engine = resolve_engine(self.engine, table.n_bins, len(dtm))
+        if engine == 'numba':
+            from syriskmodels.scorecard.core.kernels_numba import (
+                chi2_merge_search_numba,
+            )
+            seg_bounds = chi2_merge_search_numba(
+                table.good, table.bad, ratios,
+                chi2_limit=self.chi2_limit,
+                count_distr_limit=self.count_distr_limit,
+                bin_num_limit=self.bin_num_limit,
+            )
+        else:
+            seg_bounds = chi2_merge_search(
+                table.good,
+                table.bad,
+                ratios,
+                chi2_limit=self.chi2_limit,
+                count_distr_limit=self.count_distr_limit,
+                bin_num_limit=self.bin_num_limit,
+            )
 
         # legacy ChiMerge 在入口即 bin_chr.astype('str')，最终 breaks 恒为
         # str/float dtype（无 tree 的 category-dtype 语义），categories 传 None
@@ -123,6 +141,10 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         min_iv_inc: 增加切分点后 IV 相对增幅最小值，默认 0.05
         count_distr_limit: 最小分箱样本占比，默认 0.02
         ensure_monotonic: 是否要求严格单调，默认 False
+        engine: 计算后端 ``'auto'`` | ``'numpy'`` | ``'numba'``（W2 Phase 7），
+            默认 ``'auto'``。Numba 后端要求 ``bin_num_limit ≤ 6``
+            （分区 IV 求和长度 ≤ 8 的逐位一致护栏，超出自动降级 NumPy
+            并告警）；两种后端输出逐位一致（差分测试保证）。
     """
 
     def __init__(self,
@@ -130,12 +152,14 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
                  min_iv_inc: float = 0.05,
                  count_distr_limit: float = 0.02,
                  ensure_monotonic: bool = False,
+                 engine: str = 'auto',
                  **kwargs):
         super().__init__(**kwargs)
         self.bin_num_limit = bin_num_limit
         self.min_iv_inc = min_iv_inc
         self.count_distr_limit = count_distr_limit
         self.ensure_monotonic = ensure_monotonic
+        self.engine = engine
 
     def woebin(self, dtm, breaks=None):
         """执行树分箱。
@@ -161,6 +185,7 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         assert breaks is not None, \
             f"使用{self.__class__.__name__}类进行分箱，需要传入初始分箱（细分箱）结果"
         from syriskmodels.scorecard.core.kernels import (
+            resolve_engine,
             segments_to_breaks,
             tree_cut_search,
         )
@@ -170,16 +195,31 @@ class TreeOptimBin(WOEBin, OptimBinMixin):
         # 与 legacy initial_binning 的 count_distr 列逐位一致（同算式同顺序）
         ratios = count / count.sum()
 
-        seg_bounds = tree_cut_search(
-            table.good,
-            table.bad,
-            ratios,
-            epsilon=self.epsilon,
-            bin_num_limit=self.bin_num_limit,
-            min_iv_inc=self.min_iv_inc,
-            count_distr_limit=self.count_distr_limit,
-            ensure_monotonic=self.ensure_monotonic,
-        )
+        engine = resolve_engine(self.engine, table.n_bins, len(dtm),
+                                bin_num_limit=self.bin_num_limit)
+        if engine == 'numba':
+            from syriskmodels.scorecard.core.kernels_numba import (
+                tree_cut_search_numba,
+            )
+            seg_bounds = tree_cut_search_numba(
+                table.good, table.bad, ratios,
+                epsilon=self.epsilon,
+                bin_num_limit=self.bin_num_limit,
+                min_iv_inc=self.min_iv_inc,
+                count_distr_limit=self.count_distr_limit,
+                ensure_monotonic=self.ensure_monotonic,
+            )
+        else:
+            seg_bounds = tree_cut_search(
+                table.good,
+                table.bad,
+                ratios,
+                epsilon=self.epsilon,
+                bin_num_limit=self.bin_num_limit,
+                min_iv_inc=self.min_iv_inc,
+                count_distr_limit=self.count_distr_limit,
+                ensure_monotonic=self.ensure_monotonic,
+            )
 
         out = segments_to_breaks(
             table.bin_chr, table.is_numeric, seg_bounds,
@@ -244,6 +284,7 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
                  pvalue: float = 0.05,
                  direction: str = 'bad',
                  eps: float = 1e-8,
+                 engine: str = 'auto',
                  **kwargs):
         # B-7：接收并透传 **kwargs（与 TreeOptimBin/ChiMergeOptimBin 一致），
         # 使 WOEBinFactory 的 kwargs 分发机制可用。
@@ -252,11 +293,15 @@ class RuleOptimBin(WOEBin, OptimBinMixin):
         # **不**转发给基类；基类 ``epsilon``（WOE 零计数替换值）保持默认
         # 0.5。若把 eps 转发给基类会把 rule 分箱 WOE/IV 的零替换值从 0.5
         # 变为 1e-8，改变默认分箱输出，违反 W2「默认不改变分箱输出」约束。
+        # W2 Phase 7：``engine`` 参数为 API 一致性保留，但 rule 内核的假设
+        # 检验依赖 scipy.fisher_exact（无法进入 njit），且 NumPy 向量化版
+        # 已达标 —— rule 恒使用 NumPy 后端（见 kernels_numba 模块文档）。
         super().__init__(**kwargs)
         self._min_lift = lift
         self._min_hit_samples = min_hit_samples or 0
         self._p = pvalue
         self._eps = eps
+        self.engine = engine
         assert direction in ['good', 'bad'], '挖掘方向为good/bad两者之一'
         self._direction = direction
 

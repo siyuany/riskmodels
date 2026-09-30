@@ -1234,3 +1234,220 @@ def test_composed_cache_identity_guard(dtm_cases):
     direct = composed.binning_breaks(dtm2.copy(), brk)
     baseline = WOEBin.binning_breaks(composed, dtm2.copy(), brk)
     pd.testing.assert_frame_equal(direct, baseline)
+
+
+# ============================================================================ #
+# Phase 7：Numba 后端 vs NumPy 参考实现（逐位一致）+ 后端选择策略
+# ============================================================================ #
+
+def _numba_or_skip():
+    from syriskmodels.scorecard.core import kernels_numba
+    if not kernels_numba.NUMBA_AVAILABLE:
+        pytest.skip('numba 不可用，跳过 Numba 后端差分')
+    return kernels_numba
+
+
+TREE_NB_PARAMS = [
+    (bnl, mono, cdl, eps)
+    for bnl in (1, 3, 5, 6)
+    for mono in (False, True)
+    for cdl in (0.02,)
+    for eps in (0.5,)
+] + [(5, False, 0.0, 1e-8), (2, True, 0.05, 0.5)]
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+def test_numba_tree_kernel_matches_numpy(dtm_cases, case_id):
+    """tree 内核：Numba vs NumPy 参考 seg_bounds 逐位相等（参数扫描）。"""
+    from syriskmodels.scorecard.core.kernels import tree_cut_search
+
+    kn = _numba_or_skip()
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, 20)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足')
+    table = TreeOptimBin().initial_count_table(dtm, breaks)
+    ratios = table.count / table.count.sum()
+
+    for bnl, mono, cdl, eps in TREE_NB_PARAMS:
+        a = tree_cut_search(table.good, table.bad, ratios, eps, bnl,
+                            0.05, cdl, mono)
+        b = kn.tree_cut_search_numba(table.good, table.bad, ratios, eps,
+                                     bnl, 0.05, cdl, mono)
+        np.testing.assert_array_equal(
+            a, b, err_msg=f'tree numba mismatch: {case_id} {bnl} {mono} {cdl} {eps}')
+
+
+@pytest.mark.parametrize('case_id', _CASE_IDS)
+def test_numba_chi2_kernel_matches_numpy(dtm_cases, case_id):
+    """chi2 内核：Numba vs NumPy 参考 seg_bounds 逐位相等（含 limit>6）。"""
+    from syriskmodels.scorecard.core.kernels import chi2_merge_search
+
+    kn = _numba_or_skip()
+    dtm = _drop_nan(dtm_cases[case_id])
+    breaks = _initial_breaks(dtm, 20)
+    if len(breaks) < 2:
+        pytest.skip('初始分箱不足')
+    table = ChiMergeOptimBin().initial_count_table(dtm, breaks)
+    ratios = table.count / table.count.sum()
+
+    from scipy.stats import chi2 as chi2_dist
+    for p in (0.05, 0.5):
+        for bnl in (1, 3, 5, 8):
+            for cdl in (0.0, 0.02):
+                lim = chi2_dist.isf(p, df=1)
+                a = chi2_merge_search(table.good, table.bad, ratios,
+                                      lim, cdl, bnl)
+                b = kn.chi2_merge_search_numba(table.good, table.bad, ratios,
+                                               lim, cdl, bnl)
+                np.testing.assert_array_equal(
+                    a, b,
+                    err_msg=f'chi2 numba mismatch: {case_id} {p} {bnl} {cdl}')
+
+
+@pytest.mark.slow
+def test_numba_chi2_kernel_large_ib500():
+    """chi2 ib=500 大表：Numba 与 NumPy 参考逐位一致（k≈500）。"""
+    from syriskmodels.scorecard.core.kernels import chi2_merge_search
+
+    kn = _numba_or_skip()
+    rng = np.random.default_rng(901)
+    k = 500
+    good = rng.integers(0, 500, k).astype('int64')
+    bad = rng.integers(0, 40, k).astype('int64')
+    count = good + bad
+    ratios = count / count.sum()
+    from scipy.stats import chi2 as chi2_dist
+    lim = chi2_dist.isf(0.05, df=1)
+    a = chi2_merge_search(good, bad, ratios, lim, 0.02, 5)
+    b = kn.chi2_merge_search_numba(good, bad, ratios, lim, 0.02, 5)
+    np.testing.assert_array_equal(a, b)
+
+
+@pytest.mark.slow
+def test_numba_tree_kernel_large_ib500():
+    """tree ib=500 大表：Numba 与 NumPy 参考逐位一致。"""
+    from syriskmodels.scorecard.core.kernels import tree_cut_search
+
+    kn = _numba_or_skip()
+    rng = np.random.default_rng(902)
+    k = 500
+    good = rng.integers(0, 500, k).astype('int64')
+    bad = rng.integers(0, 40, k).astype('int64')
+    count = good + bad
+    ratios = count / count.sum()
+    for bnl in (3, 5, 6):
+        for mono in (False, True):
+            a = tree_cut_search(good, bad, ratios, 0.5, bnl, 0.05, 0.0, mono)
+            b = kn.tree_cut_search_numba(good, bad, ratios, 0.5, bnl, 0.05,
+                                         0.0, mono)
+            np.testing.assert_array_equal(a, b)
+
+
+@pytest.mark.parametrize('case_id', ['num_signal', 'num_ties_discrete',
+                                     'cat_non_monotonic', 'cat_ordered_risk',
+                                     'num_missing_sentinel'])
+def test_numba_binner_end_to_end_matches_reference(dtm_cases, case_id):
+    """binner 级：engine='numba' 全路径输出与 W1 参考拷贝逐位一致。"""
+    _numba_or_skip()
+    dtm = dtm_cases[case_id]
+    special = ['-999'] if case_id == 'num_missing_sentinel' else None
+
+    for cls_nb, cls_ref, kwargs in [
+        (TreeOptimBin, RefTreeOptimBin,
+         dict(bin_num_limit=5, count_distr_limit=0.02)),
+        (TreeOptimBin, RefTreeOptimBin,
+         dict(bin_num_limit=3, ensure_monotonic=True, count_distr_limit=0.0)),
+        (ChiMergeOptimBin, RefChiMergeOptimBin,
+         dict(bin_num_limit=4, count_distr_limit=0.02)),
+        (ChiMergeOptimBin, RefChiMergeOptimBin,
+         dict(bin_num_limit=8, p=0.5, count_distr_limit=0.0)),
+    ]:
+        prod = ComposedWOEBin(
+            [QuantileInitBin(initial_bins=20), cls_nb(engine='numba', **kwargs)])
+        ref = ComposedWOEBin(
+            [QuantileInitBin(initial_bins=20), cls_ref(**kwargs)])
+        pd.testing.assert_frame_equal(
+            prod(dtm.copy(), special_values=special),
+            ref(dtm.copy(), special_values=special))
+
+
+def test_numba_tree_limit_guard_downgrades_to_numpy(dtm_cases):
+    """bin_num_limit > 6 时 engine='numba' 自动降级 numpy，输出与参考一致。"""
+    _numba_or_skip()
+    from syriskmodels.scorecard.core.kernels import resolve_engine
+    assert resolve_engine('numba', 100, 50000, bin_num_limit=8) == 'numpy'
+
+    dtm = _drop_nan(dtm_cases['num_signal'])
+    breaks = _initial_breaks(dtm, 100)
+    prod = TreeOptimBin(bin_num_limit=8, engine='numba')
+    ref = RefTreeOptimBin(bin_num_limit=8)
+    _assert_breaks_identical(prod.woebin(dtm, breaks), ref.woebin(dtm, breaks))
+
+
+def test_resolve_engine_policy(monkeypatch):
+    """后端选择策略：auto 阈值、显式指定、不可用回退、非法值。"""
+    from syriskmodels.scorecard.core import kernels_numba
+    from syriskmodels.scorecard.core.kernels import (
+        NUMBA_MAX_TREE_LIMIT,
+        NUMBA_MIN_BINS,
+        NUMBA_MIN_ROWS,
+        resolve_engine,
+    )
+
+    assert resolve_engine('numpy', 10**6, 10**9) == 'numpy'
+    with pytest.raises(ValueError):
+        resolve_engine('cuda', 10, 10)
+
+    # auto：小数据不启用（且不 import numba —— 见独立子进程用例）
+    assert resolve_engine('auto', NUMBA_MIN_BINS - 1, 10**6) == 'numpy'
+    assert resolve_engine('auto', 10**6, NUMBA_MIN_ROWS - 1) == 'numpy'
+    # auto：tree 求和长度护栏
+    assert resolve_engine('auto', 100, 50000,
+                          bin_num_limit=NUMBA_MAX_TREE_LIMIT + 1) == 'numpy'
+
+    if kernels_numba.NUMBA_AVAILABLE:
+        assert resolve_engine('auto', 100, 50000) == 'numba'
+        assert resolve_engine('auto', 100, 50000,
+                              bin_num_limit=NUMBA_MAX_TREE_LIMIT) == 'numba'
+        assert resolve_engine('numba', 5, 100) == 'numba'
+
+    # numba 不可用 → 回退 numpy（显式请求也一样，不抛错）
+    monkeypatch.setattr(kernels_numba, 'NUMBA_AVAILABLE', False)
+    assert resolve_engine('numba', 100, 50000) == 'numpy'
+    assert resolve_engine('auto', 100, 50000) == 'numpy'
+
+
+def test_package_import_does_not_load_numba():
+    """§7.6：import syriskmodels.scorecard 不得连带 import numba。"""
+    import subprocess
+    import sys
+
+    code = ('import sys; import syriskmodels.scorecard; '
+            'print("numba" in sys.modules)')
+    out = subprocess.run([sys.executable, '-c', code],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == 'False', (
+        f'包导入即加载了 numba：{out.stdout.strip()}')
+
+
+def test_auto_engine_selects_numba_at_scale():
+    """auto 策略端到端：n≥5000 且 k≥64 时走 Numba，输出与参考一致。"""
+    kn = _numba_or_skip()
+    rng = np.random.default_rng(903)
+    n = 6000
+    v = np.round(rng.normal(size=n), 6)
+    y = rng.binomial(1, 1 / (1 + np.exp(-1.2 * v)))
+    dtm = _dtm(v, y)
+    breaks0 = _initial_breaks(dtm, 100)   # k≈100 ≥ NUMBA_MIN_BINS
+
+    prod = TreeOptimBin(bin_num_limit=5)          # engine='auto'
+    ref = RefTreeOptimBin(bin_num_limit=5)
+    _assert_breaks_identical(prod.woebin(dtm, breaks0),
+                             ref.woebin(dtm, breaks0))
+
+    prod_chi2 = ChiMergeOptimBin(bin_num_limit=5)
+    ref_chi2 = RefChiMergeOptimBin(bin_num_limit=5)
+    _assert_breaks_identical(prod_chi2.woebin(dtm, breaks0),
+                             ref_chi2.woebin(dtm, breaks0))

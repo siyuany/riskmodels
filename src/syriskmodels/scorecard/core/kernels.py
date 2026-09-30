@@ -39,6 +39,8 @@ from typing import List
 import numpy as np
 import pandas as pd
 
+import syriskmodels.logging as logging
+
 __all__ = [
     'kahan_prefix_sums',
     'kahan_suffix_sums_batched',
@@ -46,8 +48,77 @@ __all__ = [
     'chi2_pair_stats',
     'chi2_merge_search',
     'rule_cut_search',
+    'rule_segments',
     'segments_to_breaks',
+    'resolve_engine',
+    'NUMBA_MIN_BINS',
+    'NUMBA_MIN_ROWS',
+    'NUMBA_MAX_TREE_LIMIT',
 ]
+
+
+# --------------------------------------------------------------------------- #
+# 后端选择（W2 Phase 7）
+# --------------------------------------------------------------------------- #
+
+#: auto 模式启用 Numba 的最小初始分箱数（低于它 NumPy 内核已 <1ms，
+#: JIT/加载固定成本得不偿失）
+NUMBA_MIN_BINS = 64
+#: auto 模式启用 Numba 的最小样本行数
+NUMBA_MIN_ROWS = 5000
+#: tree 内核允许 Numba 的最大 bin_num_limit：分区 IV 求和长度
+#: T = 段数+1 ≤ bin_num_limit+2 必须 ≤ 8 —— numpy ``np.sum`` 仅在 n ≤ 8
+#: 时是纯标量归约（可跨平台逐位复刻）；n ≥ 9 走 SIMD 相关路径，
+#: Numba 无法保证与 NumPy 参考实现逐位一致（任务书 §7.4：以 NumPy
+#: 参考实现为准）。chi2 内核无变长求和，不受此限制。
+NUMBA_MAX_TREE_LIMIT = 6
+
+
+def resolve_engine(requested: str, n_bins: int, n_rows: int,
+                   bin_num_limit: int = None) -> str:
+    """选择分箱内核后端：``'numpy'`` 或 ``'numba'``（任务书 §7.3）。
+
+    规则:
+        * ``'numpy'`` → 恒为 NumPy 参考实现；
+        * ``'auto'``（默认）→ 初始分箱数 ≥ ``NUMBA_MIN_BINS`` 且样本行数
+          ≥ ``NUMBA_MIN_ROWS``（tree 另需 ``bin_num_limit ≤
+          NUMBA_MAX_TREE_LIMIT``）且 numba 可用时才用 Numba；小数据
+          **不 import numba**（避免 ~1s 的包导入与 JIT 固定成本）；
+        * ``'numba'`` → 显式请求；numba 不可用或触发 tree 求和长度护栏时
+          降级 NumPy 并 ``logging.warn`` 说明原因（绝不静默改变后端语义
+          而不留痕）；
+        * 非法取值 → ``ValueError``。
+
+    Numba 与 NumPy 后端的输出**逐位一致**（差分测试保证）；后端选择不
+    与 multiprocessing 混用（并行由 woebin(no_cores>1) 的进程层负责）。
+    """
+    if requested not in ('auto', 'numpy', 'numba'):
+        raise ValueError(
+            f"engine 必须是 'auto'/'numpy'/'numba' 之一，输入 {requested!r} 不合法")
+    if requested == 'numpy':
+        return 'numpy'
+
+    if requested == 'auto':
+        if n_bins < NUMBA_MIN_BINS or n_rows < NUMBA_MIN_ROWS:
+            return 'numpy'
+        if bin_num_limit is not None and bin_num_limit > NUMBA_MAX_TREE_LIMIT:
+            return 'numpy'
+
+    # 到这里才允许触碰 numba（import 成本只发生在真正可能使用时）
+    from syriskmodels.scorecard.core import kernels_numba
+
+    if not kernels_numba.NUMBA_AVAILABLE:
+        if requested == 'numba':
+            logging.warn('engine="numba" 但 numba 不可用，已回退 numpy 后端')
+        return 'numpy'
+    if bin_num_limit is not None and bin_num_limit > NUMBA_MAX_TREE_LIMIT:
+        if requested == 'numba':
+            logging.warn(
+                f'engine="numba" 降级为 numpy：bin_num_limit={bin_num_limit}'
+                f' > {NUMBA_MAX_TREE_LIMIT}（分区求和长度 > 8，numpy pairwise'
+                ' 归约不可逐位复刻，以 NumPy 参考实现为准）')
+        return 'numpy'
+    return 'numba'
 
 
 # --------------------------------------------------------------------------- #
