@@ -1,15 +1,56 @@
 # -*- encoding: utf-8 -*-
 """
-分箱辅助函数模块
+分箱辅助函数模块（**已弃用 / DEPRECATED，B-12**）
 
-提供分箱相关的通用工具函数，这些函数都是无状态的纯函数
+W2 决策（见 docs/plans/w2-kernel-refactor-report.md §B-12）：
+本模块的 6 个公开函数**不被生产分箱路径使用**（真实路径为
+``api/transform.woebin_breaks`` + ``core/base.WOEBin.binning_breaks`` /
+``binning_format``），且 ``extract_*`` 系列的 breaks 语义与生产路径
+**不一致**（helper 返回数值右边界 float，含 ``inf``；生产返回分箱名/
+右边界字符串）。为避免"测试覆盖死代码造成充分覆盖错觉"与后续重构
+改错对象，本模块整体标记 deprecated：
+
+* 保留 ``scorecard/__init__.py`` 的兼容导出（公共 API 不破坏）；
+* 调用任何公开函数会触发 ``DeprecationWarning``；
+* 新代码请使用生产路径 API（``woebin`` / ``woebin_breaks``）。
+
+``compute_woe`` / ``compute_iv`` 的数学语义与生产路径 ``binning_format``
+一致（一致性由 ``test/test_known_bugs.py::test_b12_*`` 钉住）。
 """
+import functools
 from typing import Union
 import re
+import warnings
+
 import numpy as np
 import pandas as pd
 
 from syriskmodels.scorecard.exceptions import InvalidBreaksError, WOEComputationError
+
+#: B-12 弃用标记（供测试与工具静态检查）
+__deprecated__ = True
+
+_DEPRECATED_NOTE = (
+    'syriskmodels.scorecard.utils.binning_helpers 已弃用（B-12）：'
+    '这些 helper 不被生产分箱路径使用，且 extract_* 的 breaks 语义与生产路径'
+    '不同（返回数值右边界而非分箱名字符串）。仅为向后兼容保留导出，'
+    '新代码请使用 woebin / woebin_breaks 等生产 API。'
+)
+
+
+def _deprecated(func):
+    """公开函数弃用包装：首次调用点触发 DeprecationWarning。"""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        warnings.warn(
+            f'{func.__name__}: {_DEPRECATED_NOTE}',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 # 正则模式常量（模块内部使用）
@@ -17,6 +58,7 @@ _INTERVAL_PATTERN = re.compile(r"^\[(.*), *(.*)\)")
 _MERGE_PATTERN = re.compile(r',[.\d]+\)%,%\[[.\d]+,')
 
 
+@_deprecated
 def extract_numeric_breaks(binning: pd.DataFrame) -> pd.Series:
     """从数值型分箱结果中提取切分点（右边界）
     
@@ -54,6 +96,7 @@ def extract_numeric_breaks(binning: pd.DataFrame) -> pd.Series:
     return pd.to_numeric(breaks, errors='coerce')
 
 
+@_deprecated
 def format_numeric_bin_names(binning: pd.DataFrame) -> pd.DataFrame:
     """格式化数值型分箱名，合并冗余字符
     
@@ -177,6 +220,7 @@ def _validate_contiguous_intervals(left_bin: str, right_bin: str) -> None:
         pass
 
 
+@_deprecated
 def extract_breaks_from_binning(
     binning: pd.DataFrame, 
     is_numeric: bool
@@ -214,6 +258,7 @@ def extract_breaks_from_binning(
         return binning['bin_chr'].copy()
 
 
+@_deprecated
 def compute_woe(
     good: np.ndarray, 
     bad: np.ndarray, 
@@ -271,6 +316,7 @@ def compute_woe(
     return woe
 
 
+@_deprecated
 def compute_iv(
     woe: np.ndarray, 
     good: np.ndarray, 
@@ -319,6 +365,7 @@ def compute_iv(
     return float(iv)
 
 
+@_deprecated
 def merge_adjacent_bins(
     binning: pd.DataFrame, 
     idx: int

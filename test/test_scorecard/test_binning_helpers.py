@@ -1,6 +1,12 @@
 # -*- encoding: utf-8 -*-
 """
 测试分箱辅助函数模块
+
+注意（B-12/W2）：``binning_helpers`` 已整体标记 **deprecated** —— 它不被
+生产分箱路径使用，仅为向后兼容保留导出。本文件继续钉住这些兼容行为的
+稳定性（防止兼容层悄悄变化），调用时的 ``DeprecationWarning`` 在本模块内
+统一屏蔽；弃用状态与"生产路径不依赖它"的断言见
+``test/test_known_bugs.py`` 的 B-12 用例。
 """
 import pytest
 import pandas as pd
@@ -13,6 +19,9 @@ from syriskmodels.scorecard.utils.binning_helpers import (
     compute_iv,
     merge_adjacent_bins
 )
+
+# 兼容层测试：屏蔽每个调用的 DeprecationWarning（弃用状态另有专门用例断言）
+pytestmark = pytest.mark.filterwarnings('ignore::DeprecationWarning')
 
 
 class TestExtractNumericBreaks:

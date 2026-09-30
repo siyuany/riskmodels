@@ -837,54 +837,161 @@ def test_b11_explicit_parallel_matches_serial():
 
 
 # --------------------------------------------------------------------------- #
-# B-12 binning_helpers 与生产代码脱节
+# B-12 binning_helpers 与生产代码脱节（W2 处置：标记 deprecated + 兼容导出）
 # --------------------------------------------------------------------------- #
 
-def test_b12_binning_helpers_not_used_by_production_path():
-    """B-12：``scorecard.utils.binning_helpers`` 当前只被再导出，未被生产路径使用。
+def test_b12_binning_helpers_deprecated_and_not_used_by_production():
+    """B-12（已处置）：``binning_helpers`` 标记 deprecated，生产路径不依赖。
 
-    现象：``src/syriskmodels/scorecard/{core,bins,api}`` 中没有任何模块 import
-          ``binning_helpers``（仅 ``scorecard/__init__.py`` 与测试引用）。
-          真实切分点提取走 ``api/transform.woebin_breaks`` 与
-          ``core/base.WOEBin.binning_breaks``，两套实现并存。
-    风险：① ``test/test_scorecard/test_binning_helpers.py`` 的 30+ 断言覆盖的是
-          **未被使用**的代码，给人"分箱逻辑已充分覆盖"的错觉；
-          ② 后续重构若误以为它是生产路径，会改错地方。
-    说明：断言"当前无生产引用"，用于在 W2 明确处置（接入或删除）后强制更新记录。
+    W2 决策（方案 b，见 W2 报告 §B-12）：不把 helper 接入生产路径 ——
+    W2 性能内核重构正把粗分箱迁移到 BinCountTable/NumPy 实现，把
+    DataFrame 形态的 helper 塞进热路径与重构方向相反；改为：
+
+    1. 模块标记 ``__deprecated__``，6 个公开函数调用时触发
+       ``DeprecationWarning``；
+    2. ``scorecard/__init__.py`` 兼容导出保留（公共 API 不破坏）；
+    3. 生产路径（core/bins/api）依旧**零引用**；
+    4. ``test_binning_helpers.py`` 明确定位为"兼容层稳定性"测试。
     """
     import pathlib
-    src = pathlib.Path(__file__).resolve().parent.parent / 'src' / 'syriskmodels' / 'scorecard'
+
+    import pytest as _pytest
+
+    from syriskmodels.scorecard.utils import binning_helpers as bh
+
+    # 1. 弃用标记 + 调用告警
+    assert getattr(bh, '__deprecated__', False) is True
+    with _pytest.warns(DeprecationWarning):
+        bh.compute_woe(np.array([80, 60]), np.array([20, 40]), 0.5)
+    with _pytest.warns(DeprecationWarning):
+        bh.extract_numeric_breaks(
+            pd.DataFrame({'bin_chr': ['[-inf, 20)', '[20, inf)']}))
+
+    # 2. 兼容导出保留
+    import syriskmodels.scorecard as sc
+    for name in ('extract_numeric_breaks', 'format_numeric_bin_names',
+                 'extract_breaks_from_binning', 'compute_woe', 'compute_iv',
+                 'merge_adjacent_bins'):
+        assert hasattr(sc, name), f'兼容导出缺失: {name}'
+        assert name in sc.__all__
+
+    # 3. 生产路径零引用（仅 __init__.py 再导出）
+    src = (pathlib.Path(__file__).resolve().parent.parent
+           / 'src' / 'syriskmodels' / 'scorecard')
     referencing = sorted(
         str(path.relative_to(src))
         for path in src.rglob('*.py')
         if 'binning_helpers' in path.read_text(encoding='utf-8')
     )
-    assert referencing == ['__init__.py'], (
-        f'binning_helpers 的引用发生了变化：{referencing}；'
-        f'请同步更新 W1 报告中的 B-12 记录'
+    assert referencing == ['__init__.py', 'utils/binning_helpers.py'], (
+        f'binning_helpers 的生产引用发生了变化：{referencing}；'
+        f'请同步更新 W2 报告中的 B-12 记录'
     )
 
 
-def test_b12_binning_helpers_semantics_do_not_match_production():
-    """B-12（补充）：两套切分点提取对同一分箱给出不同的 ``breaks`` 语义。
+def test_b12_helper_woe_iv_semantics_consistent_with_production():
+    """B-12（补充）：helper 与生产路径**重叠语义**必须一致。
 
-    ``binning_helpers.extract_breaks_from_binning`` 返回的是**分箱右边界**
-    （含 ``inf``），而生产路径 ``woebin_breaks`` 返回的是分箱名（类别型）或
-    右边界字符串（数值型）。两者不能互换使用。
+    ``compute_woe`` / ``compute_iv``（epsilon=0.5）与生产路径
+    ``WOEBin.binning_format`` 的 woe / total_iv 数学定义相同 ——
+    这是两套实现唯一语义重叠的部分，用真实分箱结果钉住数值一致。
+    ``extract_*`` 的 breaks 语义与生产路径**有意不同**（float 右边界 vs
+    字符串），差异已在弃用说明中记录，本用例同时钉住两侧行为防漂移。
     """
-    from syriskmodels.scorecard.utils.binning_helpers import (
-        extract_breaks_from_binning,
-    )
+    import pytest as _pytest
 
+    from syriskmodels.scorecard.utils import binning_helpers as bh
+
+    frame = _synthetic()
+    bins = _bins(frame, ['num_a', 'cat_a'])
+
+    for var in ('num_a', 'cat_a'):
+        res = bins[var]
+        good = res['good'].to_numpy()
+        bad = res['bad'].to_numpy()
+        eps = 0.5
+
+        with _pytest.warns(DeprecationWarning):
+            woe = bh.compute_woe(good, bad, epsilon=eps)
+        assert np.allclose(woe, res['woe'].to_numpy(), rtol=0, atol=1e-12)
+
+        sub0 = lambda a: np.where(a == 0, eps, a)  # noqa: E731
+        with _pytest.warns(DeprecationWarning):
+            iv = bh.compute_iv(woe, sub0(good), sub0(bad))
+        assert iv == _pytest.approx(float(res['total_iv'].iloc[0]), rel=0,
+                                    abs=1e-12)
+
+    # breaks 语义差异（弃用说明的一部分）：helper 返回 float 右边界，
+    # 生产路径返回字符串（数值型为右边界字符串，类别型为分箱名）
     numeric_binning = pd.DataFrame({
         'bin_chr': ['[-inf, 20)', '[20, 40)', '[40, inf)'],
     })
-    helper_breaks = list(extract_breaks_from_binning(numeric_binning, is_numeric=True))
+    with _pytest.warns(DeprecationWarning):
+        helper_breaks = list(
+            bh.extract_breaks_from_binning(numeric_binning, is_numeric=True))
     assert helper_breaks == [20.0, 40.0, np.inf]
+    assert all(isinstance(b, float) for b in helper_breaks)
 
-    frame = _synthetic()
-    bins = _bins(frame, ['num_a'])
     production_breaks = bins['num_a']['breaks'].tolist()
-    assert production_breaks != [str(b) for b in helper_breaks], (
-        '两套实现的 breaks 语义已一致，请复核 B-12 记录是否仍然成立'
+    assert all(isinstance(b, str) for b in production_breaks), (
+        '生产路径数值型 breaks 应为右边界字符串，语义已变化，请复核 B-12 记录'
     )
+
+
+# --------------------------------------------------------------------------- #
+# B-13 test_scorecard/conftest.py fixture 定义缺陷（W2 已修复）
+# --------------------------------------------------------------------------- #
+
+def test_b13_conftest_fixtures_use_dependency_injection():
+    """B-13（已修复）：test_scorecard/conftest.py 数据 fixture 依赖注入且有消费者。
+
+    历史缺陷：``data_with_constant_var`` 等 5 个 fixture 直接调用
+    ``clean_data()``（fixture 函数的普通调用返回包装对象而非 DataFrame），
+    一旦被使用必然 ``AttributeError``；且当时**没有任何测试消费这些
+    fixture**，缺陷一直潜伏。
+
+    W2 修复：
+    1. 5 个 fixture 全部改为依赖注入形式（``def ...(clean_data): ...``）；
+       ``data_with_mixed_types`` 另需先 ``astype(object)``（pandas 3 的
+       ``str`` dtype 不允许写入非字符串值，fixture 原本在 pandas 3 下
+       自身即抛 TypeError —— 同类潜伏缺陷）；
+    2. 新增 ``test/test_scorecard/test_conftest_fixtures.py`` 真实消费
+       全部数据类 fixture（含 dtm_* 与 binning_result_*）；
+    3. 本用例静态钉住两个不变量：① fixture 签名含 ``clean_data``；
+       ② 每个 fixture 至少被一个测试函数消费。
+    """
+    import ast
+    import inspect
+    import pathlib
+
+    from test.test_scorecard import conftest as sc_conftest
+
+    fixture_names = [
+        'data_with_constant_var',
+        'data_with_too_many_categories',
+        'data_with_special_values',
+        'data_with_mixed_types',
+        'data_all_nan',
+    ]
+
+    # ① 依赖注入：fixture 原函数签名必须含 clean_data
+    for name in fixture_names:
+        fn = getattr(sc_conftest, name)
+        wrapped = getattr(fn, '__wrapped__', fn)
+        params = inspect.signature(wrapped).parameters
+        assert 'clean_data' in params, (
+            f'{name} 应通过依赖注入接收 clean_data fixture，'
+            f'当前签名: {list(params)}'
+        )
+
+    # ② 至少一个测试真实消费每个 fixture
+    test_dir = pathlib.Path(__file__).resolve().parent / 'test_scorecard'
+    consumed = set()
+    for path in sorted(test_dir.glob('test_*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.FunctionDef)
+                    and node.name.startswith('test_')):
+                consumed.update(a.arg for a in node.args.args)
+    missing = [n for n in fixture_names if n not in consumed]
+    assert not missing, f'以下 fixture 仍无测试消费（潜伏缺陷风险）: {missing}'
