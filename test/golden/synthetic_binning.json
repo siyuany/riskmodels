@@ -1,0 +1,3327 @@
+{
+  "cases": {
+    "synthetic_categorical_special_values": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "bin_num_limit": 5,
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "n_rows": 1000,
+      "special_values": "{'cat_ok': ['unknown', 'missing'], 'num_normal': ['missing']}",
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "cat_ok": [
+          {
+            "bad": 21,
+            "badprob": 0.525,
+            "bin": "missing",
+            "bin_iv": 4.128e-05,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 40,
+            "good": 19,
+            "is_special_values": true,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": 0.03210871
+          },
+          {
+            "bad": 22,
+            "badprob": 0.55,
+            "bin": "unknown",
+            "bin_iv": 0.00018708,
+            "breaks": [
+              "u",
+              "n",
+              "k",
+              "n",
+              "o",
+              "w",
+              "n"
+            ],
+            "count": 40,
+            "good": 18,
+            "is_special_values": true,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": -0.06847853
+          },
+          {
+            "bad": 53,
+            "badprob": 0.59550562,
+            "bin": "epsilon",
+            "bin_iv": 0.00568972,
+            "breaks": [
+              "e",
+              "p",
+              "s",
+              "i",
+              "l",
+              "o",
+              "n"
+            ],
+            "count": 89,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": -0.25458081
+          },
+          {
+            "bad": 115,
+            "badprob": 0.56097561,
+            "bin": "theta%,%beta",
+            "bin_iv": 0.00260196,
+            "breaks": [
+              "t",
+              "h",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "b",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 205,
+            "good": 90,
+            "is_special_values": false,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": -0.11293029
+          },
+          {
+            "bad": 292,
+            "badprob": 0.52423698,
+            "bin": "gamma%,%delta%,%alpha%,%eta",
+            "bin_iv": 0.00068963,
+            "breaks": [
+              "g",
+              "a",
+              "m",
+              "m",
+              "a",
+              "%",
+              ",",
+              "%",
+              "d",
+              "e",
+              "l",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "a",
+              "l",
+              "p",
+              "h",
+              "a",
+              "%",
+              ",",
+              "%",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 557,
+            "good": 265,
+            "is_special_values": false,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": 0.03516819
+          },
+          {
+            "bad": 30,
+            "badprob": 0.43478261,
+            "bin": "zeta",
+            "bin_iv": 0.01074243,
+            "breaks": [
+              "z",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 69,
+            "good": 39,
+            "is_special_values": false,
+            "total_iv": 0.01995208,
+            "variable": "cat_ok",
+            "woe": 0.39455643
+          }
+        ],
+        "num_normal": [
+          {
+            "bad": 32,
+            "badprob": 0.53333333,
+            "bin": "missing",
+            "bin_iv": 1.1e-07,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 60,
+            "good": 28,
+            "is_special_values": true,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.00133923
+          },
+          {
+            "bad": 12,
+            "badprob": 0.12903226,
+            "bin": "[-inf,-1.4149999999999998)",
+            "bin_iv": 0.30816609,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "1",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 93,
+            "good": 81,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 2.04173467
+          },
+          {
+            "bad": 55,
+            "badprob": 0.29100529,
+            "bin": "[-1.4149999999999998,-0.6757)",
+            "bin_iv": 0.18791927,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "6",
+              "7",
+              "5",
+              "7"
+            ],
+            "count": 189,
+            "good": 134,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 1.02269878
+          },
+          {
+            "bad": 205,
+            "badprob": 0.54521277,
+            "bin": "[-0.6757,0.4934)",
+            "bin_iv": 0.00090682,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "3",
+              "4"
+            ],
+            "count": 376,
+            "good": 171,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.04915426
+          },
+          {
+            "bad": 144,
+            "badprob": 0.76595745,
+            "bin": "[0.4934,1.339)",
+            "bin_iv": 0.18535174,
+            "breaks": [
+              "1",
+              ".",
+              "3",
+              "3",
+              "9"
+            ],
+            "count": 188,
+            "good": 44,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -1.0534315
+          },
+          {
+            "bad": 85,
+            "badprob": 0.90425532,
+            "bin": "[1.339,inf)",
+            "bin_iv": 0.29628123,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 94,
+            "good": 9,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -2.11323451
+          }
+        ],
+        "num_signal": [
+          {
+            "bad": 92,
+            "badprob": 0.26285714,
+            "bin": "[-inf,-1.164)",
+            "bin_iv": 0.44190891,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "6",
+              "4"
+            ],
+            "count": 350,
+            "good": 258,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": 1.16336317
+          },
+          {
+            "bad": 348,
+            "badprob": 0.63387978,
+            "bin": "[-1.164,2.905)",
+            "bin_iv": 0.09271746,
+            "breaks": [
+              "2",
+              ".",
+              "9",
+              "0",
+              "5"
+            ],
+            "count": 549,
+            "good": 201,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -0.41670541
+          },
+          {
+            "bad": 93,
+            "badprob": 0.92079208,
+            "bin": "[2.905,inf)",
+            "bin_iv": 0.36521193,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 101,
+            "good": 8,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -2.32096578
+          }
+        ]
+      }
+    },
+    "synthetic_constant_and_many_cats": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "bin_num_limit": 5,
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "n_rows": 1000,
+      "special_values": null,
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "const_int": "CONST",
+        "many_cats": "TOO_MANY_VALUES",
+        "num_signal": [
+          {
+            "bad": 92,
+            "badprob": 0.26285714,
+            "bin": "[-inf,-1.164)",
+            "bin_iv": 0.44190891,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "6",
+              "4"
+            ],
+            "count": 350,
+            "good": 258,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": 1.16336317
+          },
+          {
+            "bad": 348,
+            "badprob": 0.63387978,
+            "bin": "[-1.164,2.905)",
+            "bin_iv": 0.09271746,
+            "breaks": [
+              "2",
+              ".",
+              "9",
+              "0",
+              "5"
+            ],
+            "count": 549,
+            "good": 201,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -0.41670541
+          },
+          {
+            "bad": 93,
+            "badprob": 0.92079208,
+            "bin": "[2.905,inf)",
+            "bin_iv": 0.36521193,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 101,
+            "good": 8,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -2.32096578
+          }
+        ]
+      }
+    },
+    "synthetic_implicit_missing": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "bin_num_limit": 5,
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "n_rows": 1000,
+      "special_values": null,
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "cat_ok": [
+          {
+            "bad": 21,
+            "badprob": 0.525,
+            "bin": "missing",
+            "bin_iv": 4.128e-05,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 40,
+            "good": 19,
+            "is_special_values": true,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.03210871
+          },
+          {
+            "bad": 53,
+            "badprob": 0.59550562,
+            "bin": "epsilon",
+            "bin_iv": 0.00568972,
+            "breaks": [
+              "e",
+              "p",
+              "s",
+              "i",
+              "l",
+              "o",
+              "n"
+            ],
+            "count": 89,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": -0.25458081
+          },
+          {
+            "bad": 137,
+            "badprob": 0.55918367,
+            "bin": "theta%,%beta%,%unknown",
+            "bin_iv": 0.00272303,
+            "breaks": [
+              "t",
+              "h",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "b",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "u",
+              "n",
+              "k",
+              "n",
+              "o",
+              "w",
+              "n"
+            ],
+            "count": 245,
+            "good": 108,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": -0.10565753
+          },
+          {
+            "bad": 292,
+            "badprob": 0.52423698,
+            "bin": "gamma%,%delta%,%alpha%,%eta",
+            "bin_iv": 0.00068963,
+            "breaks": [
+              "g",
+              "a",
+              "m",
+              "m",
+              "a",
+              "%",
+              ",",
+              "%",
+              "d",
+              "e",
+              "l",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "a",
+              "l",
+              "p",
+              "h",
+              "a",
+              "%",
+              ",",
+              "%",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 557,
+            "good": 265,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.03516819
+          },
+          {
+            "bad": 30,
+            "badprob": 0.43478261,
+            "bin": "zeta",
+            "bin_iv": 0.01074243,
+            "breaks": [
+              "z",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 69,
+            "good": 39,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.39455643
+          }
+        ],
+        "num_normal": [
+          {
+            "bad": 32,
+            "badprob": 0.53333333,
+            "bin": "missing",
+            "bin_iv": 1.1e-07,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 60,
+            "good": 28,
+            "is_special_values": true,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.00133923
+          },
+          {
+            "bad": 12,
+            "badprob": 0.12903226,
+            "bin": "[-inf,-1.4149999999999998)",
+            "bin_iv": 0.30816609,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "1",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 93,
+            "good": 81,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 2.04173467
+          },
+          {
+            "bad": 55,
+            "badprob": 0.29100529,
+            "bin": "[-1.4149999999999998,-0.6757)",
+            "bin_iv": 0.18791927,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "6",
+              "7",
+              "5",
+              "7"
+            ],
+            "count": 189,
+            "good": 134,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 1.02269878
+          },
+          {
+            "bad": 205,
+            "badprob": 0.54521277,
+            "bin": "[-0.6757,0.4934)",
+            "bin_iv": 0.00090682,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "3",
+              "4"
+            ],
+            "count": 376,
+            "good": 171,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.04915426
+          },
+          {
+            "bad": 144,
+            "badprob": 0.76595745,
+            "bin": "[0.4934,1.339)",
+            "bin_iv": 0.18535174,
+            "breaks": [
+              "1",
+              ".",
+              "3",
+              "3",
+              "9"
+            ],
+            "count": 188,
+            "good": 44,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -1.0534315
+          },
+          {
+            "bad": 85,
+            "badprob": 0.90425532,
+            "bin": "[1.339,inf)",
+            "bin_iv": 0.29628123,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 94,
+            "good": 9,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -2.11323451
+          }
+        ]
+      }
+    },
+    "synthetic_quantile_chi2_ib20_limit5": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "bin_num_limit": 5,
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile",
+        "chi2"
+      ],
+      "n_rows": 1000,
+      "special_values": null,
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "cat_ok": [
+          {
+            "bad": 21,
+            "badprob": 0.525,
+            "bin": "missing",
+            "bin_iv": 4.128e-05,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 40,
+            "good": 19,
+            "is_special_values": true,
+            "total_iv": 4.3e-05,
+            "variable": "cat_ok",
+            "woe": 0.03210871
+          },
+          {
+            "bad": 512,
+            "badprob": 0.53333333,
+            "bin": "epsilon%,%theta%,%beta%,%unknown%,%gamma%,%delta%,%alpha%,%eta%,%zeta",
+            "bin_iv": 1.72e-06,
+            "breaks": [
+              "e",
+              "p",
+              "s",
+              "i",
+              "l",
+              "o",
+              "n",
+              "%",
+              ",",
+              "%",
+              "t",
+              "h",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "b",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "u",
+              "n",
+              "k",
+              "n",
+              "o",
+              "w",
+              "n",
+              "%",
+              ",",
+              "%",
+              "g",
+              "a",
+              "m",
+              "m",
+              "a",
+              "%",
+              ",",
+              "%",
+              "d",
+              "e",
+              "l",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "a",
+              "l",
+              "p",
+              "h",
+              "a",
+              "%",
+              ",",
+              "%",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "z",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 960,
+            "good": 448,
+            "is_special_values": false,
+            "total_iv": 4.3e-05,
+            "variable": "cat_ok",
+            "woe": -0.00133923
+          }
+        ],
+        "num_discrete": [
+          {
+            "bad": 533,
+            "badprob": 0.533,
+            "bin": "[-inf,inf)",
+            "bin_iv": 0.0,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 1000,
+            "good": 467,
+            "is_special_values": false,
+            "total_iv": 0.0,
+            "variable": "num_discrete",
+            "woe": 0.0
+          }
+        ],
+        "num_normal": [
+          {
+            "bad": 32,
+            "badprob": 0.53333333,
+            "bin": "missing",
+            "bin_iv": 1.1e-07,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 60,
+            "good": 28,
+            "is_special_values": true,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": -0.00133923
+          },
+          {
+            "bad": 12,
+            "badprob": 0.12903226,
+            "bin": "[-inf,-1.4149999999999998)",
+            "bin_iv": 0.30816609,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "1",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 93,
+            "good": 81,
+            "is_special_values": false,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": 2.04173467
+          },
+          {
+            "bad": 55,
+            "badprob": 0.29100529,
+            "bin": "[-1.4149999999999998,-0.6757)",
+            "bin_iv": 0.18791927,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "6",
+              "7",
+              "5",
+              "7"
+            ],
+            "count": 189,
+            "good": 134,
+            "is_special_values": false,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": 1.02269878
+          },
+          {
+            "bad": 205,
+            "badprob": 0.54521277,
+            "bin": "[-0.6757,0.4934)",
+            "bin_iv": 0.00090682,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "3",
+              "4"
+            ],
+            "count": 376,
+            "good": 171,
+            "is_special_values": false,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": -0.04915426
+          },
+          {
+            "bad": 104,
+            "badprob": 0.74285714,
+            "bin": "[0.4934,1.021)",
+            "bin_iv": 0.10961594,
+            "breaks": [
+              "1",
+              ".",
+              "0",
+              "2",
+              "1"
+            ],
+            "count": 140,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": -0.92867979
+          },
+          {
+            "bad": 125,
+            "badprob": 0.88028169,
+            "bin": "[1.021,inf)",
+            "bin_iv": 0.36907753,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 142,
+            "good": 17,
+            "is_special_values": false,
+            "total_iv": 0.97568575,
+            "variable": "num_normal",
+            "woe": -1.86290823
+          }
+        ],
+        "num_signal": [
+          {
+            "bad": 30,
+            "badprob": 0.2,
+            "bin": "[-inf,-2.7089999999999996)",
+            "bin_iv": 0.30472097,
+            "breaks": [
+              "-",
+              "2",
+              ".",
+              "7",
+              "0",
+              "8",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "6"
+            ],
+            "count": 150,
+            "good": 120,
+            "is_special_values": false,
+            "total_iv": 0.96705742,
+            "variable": "num_signal",
+            "woe": 1.51848653
+          },
+          {
+            "bad": 62,
+            "badprob": 0.31,
+            "bin": "[-2.7089999999999996,-1.164)",
+            "bin_iv": 0.16705204,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "6",
+              "4"
+            ],
+            "count": 200,
+            "good": 138,
+            "is_special_values": false,
+            "total_iv": 0.96705742,
+            "variable": "num_signal",
+            "woe": 0.93231147
+          },
+          {
+            "bad": 273,
+            "badprob": 0.60666667,
+            "bin": "[-1.164,1.848)",
+            "bin_iv": 0.04010452,
+            "breaks": [
+              "1",
+              ".",
+              "8",
+              "4",
+              "8"
+            ],
+            "count": 450,
+            "good": 177,
+            "is_special_values": false,
+            "total_iv": 0.96705742,
+            "variable": "num_signal",
+            "woe": -0.3011299
+          },
+          {
+            "bad": 75,
+            "badprob": 0.75757576,
+            "bin": "[1.848,2.905)",
+            "bin_iv": 0.08996796,
+            "breaks": [
+              "2",
+              ".",
+              "9",
+              "0",
+              "5"
+            ],
+            "count": 99,
+            "good": 24,
+            "is_special_values": false,
+            "total_iv": 0.96705742,
+            "variable": "num_signal",
+            "woe": -1.00724212
+          },
+          {
+            "bad": 93,
+            "badprob": 0.92079208,
+            "bin": "[2.905,inf)",
+            "bin_iv": 0.36521193,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 101,
+            "good": 8,
+            "is_special_values": false,
+            "total_iv": 0.96705742,
+            "variable": "num_signal",
+            "woe": -2.32096578
+          }
+        ],
+        "num_skewed": [
+          {
+            "bad": 533,
+            "badprob": 0.533,
+            "bin": "[-inf,inf)",
+            "bin_iv": 0.0,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 1000,
+            "good": 467,
+            "is_special_values": false,
+            "total_iv": 0.0,
+            "variable": "num_skewed",
+            "woe": 0.0
+          }
+        ]
+      }
+    },
+    "synthetic_quantile_ib20": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile"
+      ],
+      "n_rows": 1000,
+      "special_values": null,
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "cat_ok": [
+          {
+            "bad": 21,
+            "badprob": 0.525,
+            "bin": "missing",
+            "bin_iv": 4.128e-05,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 40,
+            "good": 19,
+            "is_special_values": true,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.03210871
+          },
+          {
+            "bad": 124,
+            "badprob": 0.52320675,
+            "bin": "alpha",
+            "bin_iv": 0.00036644,
+            "breaks": [
+              "a",
+              "l",
+              "p",
+              "h",
+              "a"
+            ],
+            "count": 237,
+            "good": 113,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.03929842
+          },
+          {
+            "bad": 99,
+            "badprob": 0.55932203,
+            "bin": "beta",
+            "bin_iv": 0.00198816,
+            "breaks": [
+              "b",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 177,
+            "good": 78,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": -0.10621886
+          },
+          {
+            "bad": 57,
+            "badprob": 0.52777778,
+            "bin": "delta",
+            "bin_iv": 4.751e-05,
+            "breaks": [
+              "d",
+              "e",
+              "l",
+              "t",
+              "a"
+            ],
+            "count": 108,
+            "good": 51,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.02096653
+          },
+          {
+            "bad": 53,
+            "badprob": 0.59550562,
+            "bin": "epsilon",
+            "bin_iv": 0.00568972,
+            "breaks": [
+              "e",
+              "p",
+              "s",
+              "i",
+              "l",
+              "o",
+              "n"
+            ],
+            "count": 89,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": -0.25458081
+          },
+          {
+            "bad": 29,
+            "badprob": 0.5,
+            "bin": "eta",
+            "bin_iv": 0.00101649,
+            "breaks": [
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 58,
+            "good": 29,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.13219217
+          },
+          {
+            "bad": 82,
+            "badprob": 0.53246753,
+            "bin": "gamma",
+            "bin_iv": 7e-07,
+            "breaks": [
+              "g",
+              "a",
+              "m",
+              "m",
+              "a"
+            ],
+            "count": 154,
+            "good": 72,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.00213904
+          },
+          {
+            "bad": 16,
+            "badprob": 0.57142857,
+            "bin": "theta",
+            "bin_iv": 0.00067216,
+            "breaks": [
+              "t",
+              "h",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 28,
+            "good": 12,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": -0.15548991
+          },
+          {
+            "bad": 22,
+            "badprob": 0.55,
+            "bin": "unknown",
+            "bin_iv": 0.00018708,
+            "breaks": [
+              "u",
+              "n",
+              "k",
+              "n",
+              "o",
+              "w",
+              "n"
+            ],
+            "count": 40,
+            "good": 18,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": -0.06847853
+          },
+          {
+            "bad": 30,
+            "badprob": 0.43478261,
+            "bin": "zeta",
+            "bin_iv": 0.01074243,
+            "breaks": [
+              "z",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 69,
+            "good": 39,
+            "is_special_values": false,
+            "total_iv": 0.02075196,
+            "variable": "cat_ok",
+            "woe": 0.39455643
+          }
+        ],
+        "num_discrete": [
+          {
+            "bad": 23,
+            "badprob": 0.575,
+            "bin": "[-inf,0.0)",
+            "bin_iv": 0.001148,
+            "breaks": [
+              "0",
+              ".",
+              "0"
+            ],
+            "count": 40,
+            "good": 17,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": -0.17008871
+          },
+          {
+            "bad": 84,
+            "badprob": 0.51533742,
+            "bin": "[0.0,1.0)",
+            "bin_iv": 0.00081917,
+            "breaks": [
+              "1",
+              ".",
+              "0"
+            ],
+            "count": 163,
+            "good": 79,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": 0.07082322
+          },
+          {
+            "bad": 96,
+            "badprob": 0.50793651,
+            "bin": "[1.0,2.0)",
+            "bin_iv": 0.00191153,
+            "breaks": [
+              "2",
+              ".",
+              "0"
+            ],
+            "count": 189,
+            "good": 93,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": 0.10044347
+          },
+          {
+            "bad": 86,
+            "badprob": 0.5477707,
+            "bin": "[2.0,3.0)",
+            "bin_iv": 0.00055411,
+            "breaks": [
+              "3",
+              ".",
+              "0"
+            ],
+            "count": 157,
+            "good": 71,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": -0.05947525
+          },
+          {
+            "bad": 78,
+            "badprob": 0.53793103,
+            "bin": "[3.0,4.0)",
+            "bin_iv": 5.694e-05,
+            "breaks": [
+              "4",
+              ".",
+              "0"
+            ],
+            "count": 145,
+            "good": 67,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": -0.01982404
+          },
+          {
+            "bad": 166,
+            "badprob": 0.54248366,
+            "bin": "[4.0,inf)",
+            "bin_iv": 0.00044482,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 306,
+            "good": 140,
+            "is_special_values": false,
+            "total_iv": 0.00493457,
+            "variable": "num_discrete",
+            "woe": -0.0381532
+          }
+        ],
+        "num_normal": [
+          {
+            "bad": 32,
+            "badprob": 0.53333333,
+            "bin": "missing",
+            "bin_iv": 1.1e-07,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 60,
+            "good": 28,
+            "is_special_values": true,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.00133923
+          },
+          {
+            "bad": 8,
+            "badprob": 0.16666667,
+            "bin": "[-inf,-1.778)",
+            "bin_iv": 0.12303523,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "7",
+              "7",
+              "8"
+            ],
+            "count": 48,
+            "good": 40,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 1.74163008
+          },
+          {
+            "bad": 4,
+            "badprob": 0.08888889,
+            "bin": "[-1.778,-1.4149999999999998)",
+            "bin_iv": 0.1974702,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "1",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 45,
+            "good": 41,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 2.45946987
+          },
+          {
+            "bad": 14,
+            "badprob": 0.29166667,
+            "bin": "[-1.4149999999999998,-1.1500000000000001)",
+            "bin_iv": 0.04744601,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "5",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "1"
+            ],
+            "count": 48,
+            "good": 34,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 1.01949536
+          },
+          {
+            "bad": 11,
+            "badprob": 0.23404255,
+            "bin": "[-1.1500000000000001,-0.9825)",
+            "bin_iv": 0.07439057,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "9",
+              "8",
+              "2",
+              "5"
+            ],
+            "count": 47,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 1.31781583
+          },
+          {
+            "bad": 16,
+            "badprob": 0.34042553,
+            "bin": "[-0.9825,-0.8192)",
+            "bin_iv": 0.02885686,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "8",
+              "1",
+              "9",
+              "2"
+            ],
+            "count": 47,
+            "good": 31,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.79359065
+          },
+          {
+            "bad": 14,
+            "badprob": 0.29787234,
+            "bin": "[-0.8192,-0.6757)",
+            "bin_iv": 0.04393754,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "6",
+              "7",
+              "5",
+              "7"
+            ],
+            "count": 47,
+            "good": 33,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.9896424
+          },
+          {
+            "bad": 23,
+            "badprob": 0.4893617,
+            "bin": "[-0.6757,-0.474)",
+            "bin_iv": 0.00143994,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "4",
+              "7",
+              "4"
+            ],
+            "count": 47,
+            "good": 24,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.17475178
+          },
+          {
+            "bad": 22,
+            "badprob": 0.46808511,
+            "bin": "[-0.474,-0.366)",
+            "bin_iv": 0.00318724,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "3",
+              "6",
+              "6"
+            ],
+            "count": 47,
+            "good": 25,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.26002554
+          },
+          {
+            "bad": 24,
+            "badprob": 0.5106383,
+            "bin": "[-0.366,-0.2178)",
+            "bin_iv": 0.00037846,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "2",
+              "1",
+              "7",
+              "8"
+            ],
+            "count": 47,
+            "good": 23,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.08963255
+          },
+          {
+            "bad": 25,
+            "badprob": 0.53191489,
+            "bin": "[-0.2178,-0.04698)",
+            "bin_iv": 8.9e-07,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "0",
+              "4",
+              "6",
+              "9",
+              "8"
+            ],
+            "count": 47,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": 0.00435879
+          },
+          {
+            "bad": 29,
+            "badprob": 0.61702128,
+            "bin": "[-0.04698,0.0737)",
+            "bin_iv": 0.00546921,
+            "breaks": [
+              "0",
+              ".",
+              "0",
+              "7",
+              "3",
+              "7"
+            ],
+            "count": 47,
+            "good": 18,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.34473191
+          },
+          {
+            "bad": 27,
+            "badprob": 0.57446809,
+            "bin": "[0.0737,0.2533)",
+            "bin_iv": 0.00131477,
+            "breaks": [
+              "0",
+              ".",
+              "2",
+              "5",
+              "3",
+              "3"
+            ],
+            "count": 47,
+            "good": 20,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.16791243
+          },
+          {
+            "bad": 26,
+            "badprob": 0.55319149,
+            "bin": "[0.2533,0.3816)",
+            "bin_iv": 0.00031028,
+            "breaks": [
+              "0",
+              ".",
+              "3",
+              "8",
+              "1",
+              "6"
+            ],
+            "count": 47,
+            "good": 21,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.08138193
+          },
+          {
+            "bad": 29,
+            "badprob": 0.61702128,
+            "bin": "[0.3816,0.4934)",
+            "bin_iv": 0.00546921,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "3",
+              "4"
+            ],
+            "count": 47,
+            "good": 18,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.34473191
+          },
+          {
+            "bad": 35,
+            "badprob": 0.74468085,
+            "bin": "[0.4934,0.6643)",
+            "bin_iv": 0.03750193,
+            "breaks": [
+              "0",
+              ".",
+              "6",
+              "6",
+              "4",
+              "3"
+            ],
+            "count": 47,
+            "good": 12,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.93824925
+          },
+          {
+            "bad": 34,
+            "badprob": 0.72340426,
+            "bin": "[0.6643,0.8626)",
+            "bin_iv": 0.02981259,
+            "breaks": [
+              "0",
+              ".",
+              "8",
+              "6",
+              "2",
+              "6"
+            ],
+            "count": 47,
+            "good": 13,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -0.829219
+          },
+          {
+            "bad": 35,
+            "badprob": 0.76086957,
+            "bin": "[0.8626,1.021)",
+            "bin_iv": 0.0431752,
+            "breaks": [
+              "1",
+              ".",
+              "0",
+              "2",
+              "1"
+            ],
+            "count": 46,
+            "good": 11,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -1.02526062
+          },
+          {
+            "bad": 40,
+            "badprob": 0.83333333,
+            "bin": "[1.021,1.339)",
+            "bin_iv": 0.08555658,
+            "breaks": [
+              "1",
+              ".",
+              "3",
+              "3",
+              "9"
+            ],
+            "count": 48,
+            "good": 8,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -1.47724575
+          },
+          {
+            "bad": 41,
+            "badprob": 0.87234043,
+            "bin": "[1.339,1.651)",
+            "bin_iv": 0.11467013,
+            "breaks": [
+              "1",
+              ".",
+              "6",
+              "5",
+              "1"
+            ],
+            "count": 47,
+            "good": 6,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -1.78962043
+          },
+          {
+            "bad": 44,
+            "badprob": 0.93617021,
+            "bin": "[1.651,inf)",
+            "bin_iv": 0.19438312,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 47,
+            "good": 3,
+            "is_special_values": false,
+            "total_iv": 1.03780606,
+            "variable": "num_normal",
+            "woe": -2.55338518
+          }
+        ],
+        "num_signal": [
+          {
+            "bad": 8,
+            "badprob": 0.16,
+            "bin": "[-inf,-3.952)",
+            "bin_iv": 0.13414971,
+            "breaks": [
+              "-",
+              "3",
+              ".",
+              "9",
+              "5",
+              "2"
+            ],
+            "count": 50,
+            "good": 42,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 1.79042024
+          },
+          {
+            "bad": 14,
+            "badprob": 0.2745098,
+            "bin": "[-3.952,-3.2359999999999998)",
+            "bin_iv": 0.05847362,
+            "breaks": [
+              "-",
+              "3",
+              ".",
+              "2",
+              "3",
+              "5",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 51,
+            "good": 37,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 1.10405275
+          },
+          {
+            "bad": 8,
+            "badprob": 0.16326531,
+            "bin": "[-3.2359999999999998,-2.7089999999999996)",
+            "bin_iv": 0.12856189,
+            "breaks": [
+              "-",
+              "2",
+              ".",
+              "7",
+              "0",
+              "8",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "6"
+            ],
+            "count": 49,
+            "good": 41,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 1.76632269
+          },
+          {
+            "bad": 14,
+            "badprob": 0.28,
+            "bin": "[-2.7089999999999996,-2.237)",
+            "bin_iv": 0.05471703,
+            "breaks": [
+              "-",
+              "2",
+              ".",
+              "2",
+              "3",
+              "7"
+            ],
+            "count": 50,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 1.07665378
+          },
+          {
+            "bad": 15,
+            "badprob": 0.3,
+            "bin": "[-2.237,-1.794)",
+            "bin_iv": 0.04584393,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "7",
+              "9",
+              "4"
+            ],
+            "count": 50,
+            "good": 35,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 0.97949003
+          },
+          {
+            "bad": 18,
+            "badprob": 0.35294118,
+            "bin": "[-1.794,-1.434)",
+            "bin_iv": 0.02723892,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "3",
+              "4"
+            ],
+            "count": 51,
+            "good": 33,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 0.73832797
+          },
+          {
+            "bad": 15,
+            "badprob": 0.30612245,
+            "bin": "[-1.434,-1.1640000000000001)",
+            "bin_iv": 0.04245187,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "6",
+              "4",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "1"
+            ],
+            "count": 49,
+            "good": 34,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 0.95050249
+          },
+          {
+            "bad": 28,
+            "badprob": 0.56,
+            "bin": "[-1.1640000000000001,-0.8375)",
+            "bin_iv": 0.00059101,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "8",
+              "3",
+              "7",
+              "5"
+            ],
+            "count": 50,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.10896989
+          },
+          {
+            "bad": 29,
+            "badprob": 0.58,
+            "bin": "[-0.8375,-0.4686)",
+            "bin_iv": 0.0017993,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "4",
+              "6",
+              "8",
+              "6"
+            ],
+            "count": 50,
+            "good": 21,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.19058123
+          },
+          {
+            "bad": 24,
+            "badprob": 0.48,
+            "bin": "[-0.4686,-0.149)",
+            "bin_iv": 0.00225953,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "1",
+              "4",
+              "9"
+            ],
+            "count": 50,
+            "good": 26,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": 0.21223487
+          },
+          {
+            "bad": 33,
+            "badprob": 0.66,
+            "bin": "[-0.149,0.1827)",
+            "bin_iv": 0.01354901,
+            "breaks": [
+              "0",
+              ".",
+              "1",
+              "8",
+              "2",
+              "7"
+            ],
+            "count": 50,
+            "good": 17,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.53110205
+          },
+          {
+            "bad": 28,
+            "badprob": 0.56,
+            "bin": "[0.1827,0.4952)",
+            "bin_iv": 0.00059101,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "5",
+              "2"
+            ],
+            "count": 50,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.10896989
+          },
+          {
+            "bad": 35,
+            "badprob": 0.7,
+            "bin": "[0.4952,0.8079)",
+            "bin_iv": 0.02398903,
+            "breaks": [
+              "0",
+              ".",
+              "8",
+              "0",
+              "7",
+              "9"
+            ],
+            "count": 50,
+            "good": 15,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.71510569
+          },
+          {
+            "bad": 31,
+            "badprob": 0.62,
+            "bin": "[0.8079,1.068)",
+            "bin_iv": 0.0062452,
+            "breaks": [
+              "1",
+              ".",
+              "0",
+              "6",
+              "8"
+            ],
+            "count": 50,
+            "good": 19,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.35735606
+          },
+          {
+            "bad": 31,
+            "badprob": 0.62,
+            "bin": "[1.068,1.3980000000000001)",
+            "bin_iv": 0.0062452,
+            "breaks": [
+              "1",
+              ".",
+              "3",
+              "9",
+              "8",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "1"
+            ],
+            "count": 50,
+            "good": 19,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.35735606
+          },
+          {
+            "bad": 34,
+            "badprob": 0.68,
+            "bin": "[1.3980000000000001,1.8479999999999999)",
+            "bin_iv": 0.01835439,
+            "breaks": [
+              "1",
+              ".",
+              "8",
+              "4",
+              "7",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9"
+            ],
+            "count": 50,
+            "good": 16,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.62157964
+          },
+          {
+            "bad": 37,
+            "badprob": 0.74,
+            "bin": "[1.8479999999999999,2.354)",
+            "bin_iv": 0.03799585,
+            "breaks": [
+              "2",
+              ".",
+              "3",
+              "5",
+              "4"
+            ],
+            "count": 50,
+            "good": 13,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -0.91377639
+          },
+          {
+            "bad": 38,
+            "badprob": 0.7755102,
+            "bin": "[2.354,2.905)",
+            "bin_iv": 0.05287194,
+            "breaks": [
+              "2",
+              ".",
+              "9",
+              "0",
+              "5"
+            ],
+            "count": 49,
+            "good": 11,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -1.10749872
+          },
+          {
+            "bad": 46,
+            "badprob": 0.90196078,
+            "bin": "[2.905,3.5349999999999997)",
+            "bin_iv": 0.15777242,
+            "breaks": [
+              "3",
+              ".",
+              "5",
+              "3",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "7"
+            ],
+            "count": 51,
+            "good": 5,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -2.08701132
+          },
+          {
+            "bad": 47,
+            "badprob": 0.94,
+            "bin": "[3.5349999999999997,inf)",
+            "bin_iv": 0.21414736,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 50,
+            "good": 3,
+            "is_special_values": false,
+            "total_iv": 1.02784822,
+            "variable": "num_signal",
+            "woe": -2.61934315
+          }
+        ],
+        "num_skewed": [
+          {
+            "bad": 45,
+            "badprob": 0.45,
+            "bin": "[-inf,0.1276)",
+            "bin_iv": 0.0110994,
+            "breaks": [
+              "0",
+              ".",
+              "1",
+              "2",
+              "7",
+              "6"
+            ],
+            "count": 100,
+            "good": 55,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.33286286
+          },
+          {
+            "bad": 24,
+            "badprob": 0.48,
+            "bin": "[0.1276,0.2066)",
+            "bin_iv": 0.00225953,
+            "breaks": [
+              "0",
+              ".",
+              "2",
+              "0",
+              "6",
+              "6"
+            ],
+            "count": 50,
+            "good": 26,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.21223487
+          },
+          {
+            "bad": 27,
+            "badprob": 0.54,
+            "bin": "[0.2066,0.2703)",
+            "bin_iv": 3.958e-05,
+            "breaks": [
+              "0",
+              ".",
+              "2",
+              "7",
+              "0",
+              "3"
+            ],
+            "count": 50,
+            "good": 23,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.02815048
+          },
+          {
+            "bad": 27,
+            "badprob": 0.54,
+            "bin": "[0.2703,0.3661)",
+            "bin_iv": 3.958e-05,
+            "breaks": [
+              "0",
+              ".",
+              "3",
+              "6",
+              "6",
+              "1"
+            ],
+            "count": 50,
+            "good": 23,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.02815048
+          },
+          {
+            "bad": 25,
+            "badprob": 0.5,
+            "bin": "[0.3661,0.4364)",
+            "bin_iv": 0.00087629,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "3",
+              "6",
+              "4"
+            ],
+            "count": 50,
+            "good": 25,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.13219217
+          },
+          {
+            "bad": 27,
+            "badprob": 0.54,
+            "bin": "[0.4364,0.5171)",
+            "bin_iv": 3.958e-05,
+            "breaks": [
+              "0",
+              ".",
+              "5",
+              "1",
+              "7",
+              "1"
+            ],
+            "count": 50,
+            "good": 23,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.02815048
+          },
+          {
+            "bad": 29,
+            "badprob": 0.58,
+            "bin": "[0.5171,0.6211)",
+            "bin_iv": 0.0017993,
+            "breaks": [
+              "0",
+              ".",
+              "6",
+              "2",
+              "1",
+              "1"
+            ],
+            "count": 50,
+            "good": 21,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.19058123
+          },
+          {
+            "bad": 24,
+            "badprob": 0.48,
+            "bin": "[0.6211,0.7251)",
+            "bin_iv": 0.00225953,
+            "breaks": [
+              "0",
+              ".",
+              "7",
+              "2",
+              "5",
+              "1"
+            ],
+            "count": 50,
+            "good": 26,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.21223487
+          },
+          {
+            "bad": 27,
+            "badprob": 0.54,
+            "bin": "[0.7251,0.8618)",
+            "bin_iv": 3.958e-05,
+            "breaks": [
+              "0",
+              ".",
+              "8",
+              "6",
+              "1",
+              "8"
+            ],
+            "count": 50,
+            "good": 23,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.02815048
+          },
+          {
+            "bad": 29,
+            "badprob": 0.58,
+            "bin": "[0.8618,1.03)",
+            "bin_iv": 0.0017993,
+            "breaks": [
+              "1",
+              ".",
+              "0",
+              "3"
+            ],
+            "count": 50,
+            "good": 21,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.19058123
+          },
+          {
+            "bad": 28,
+            "badprob": 0.56,
+            "bin": "[1.03,1.2)",
+            "bin_iv": 0.00059101,
+            "breaks": [
+              "1",
+              ".",
+              "2"
+            ],
+            "count": 50,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.10896989
+          },
+          {
+            "bad": 24,
+            "badprob": 0.46153846,
+            "bin": "[1.2,1.46)",
+            "bin_iv": 0.00427482,
+            "breaks": [
+              "1",
+              ".",
+              "4",
+              "6"
+            ],
+            "count": 52,
+            "good": 28,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.28634285
+          },
+          {
+            "bad": 26,
+            "badprob": 0.54166667,
+            "bin": "[1.46,1.722)",
+            "bin_iv": 5.826e-05,
+            "breaks": [
+              "1",
+              ".",
+              "7",
+              "2",
+              "2"
+            ],
+            "count": 48,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.03486192
+          },
+          {
+            "bad": 25,
+            "badprob": 0.5,
+            "bin": "[1.722,2.0780000000000003)",
+            "bin_iv": 0.00087629,
+            "breaks": [
+              "2",
+              ".",
+              "0",
+              "7",
+              "8",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "3"
+            ],
+            "count": 50,
+            "good": 25,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.13219217
+          },
+          {
+            "bad": 32,
+            "badprob": 0.64,
+            "bin": "[2.0780000000000003,2.5140000000000002)",
+            "bin_iv": 0.00952537,
+            "breaks": [
+              "2",
+              ".",
+              "5",
+              "1",
+              "4",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "2"
+            ],
+            "count": 50,
+            "good": 18,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.44317198
+          },
+          {
+            "bad": 30,
+            "badprob": 0.6,
+            "bin": "[2.5140000000000002,3.0730000000000004)",
+            "bin_iv": 0.00367788,
+            "breaks": [
+              "3",
+              ".",
+              "0",
+              "7",
+              "3",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "4"
+            ],
+            "count": 50,
+            "good": 20,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.27327294
+          },
+          {
+            "bad": 24,
+            "badprob": 0.48,
+            "bin": "[3.0730000000000004,4.028)",
+            "bin_iv": 0.00225953,
+            "breaks": [
+              "4",
+              ".",
+              "0",
+              "2",
+              "8"
+            ],
+            "count": 50,
+            "good": 26,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": 0.21223487
+          },
+          {
+            "bad": 32,
+            "badprob": 0.64,
+            "bin": "[4.028,6.291)",
+            "bin_iv": 0.00952537,
+            "breaks": [
+              "6",
+              ".",
+              "2",
+              "9",
+              "1"
+            ],
+            "count": 50,
+            "good": 18,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.44317198
+          },
+          {
+            "bad": 28,
+            "badprob": 0.56,
+            "bin": "[6.291,inf)",
+            "bin_iv": 0.00059101,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 50,
+            "good": 22,
+            "is_special_values": false,
+            "total_iv": 0.05163123,
+            "variable": "num_skewed",
+            "woe": -0.10896989
+          }
+        ]
+      }
+    },
+    "synthetic_quantile_tree_ib20_limit5": {
+      "dataset": "synthetic",
+      "kwargs": {
+        "bin_num_limit": 5,
+        "initial_bins": 20
+      },
+      "methods": [
+        "quantile",
+        "tree"
+      ],
+      "n_rows": 1000,
+      "special_values": null,
+      "status": "ok",
+      "target": "target",
+      "variables": {
+        "cat_ok": [
+          {
+            "bad": 21,
+            "badprob": 0.525,
+            "bin": "missing",
+            "bin_iv": 4.128e-05,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 40,
+            "good": 19,
+            "is_special_values": true,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.03210871
+          },
+          {
+            "bad": 53,
+            "badprob": 0.59550562,
+            "bin": "epsilon",
+            "bin_iv": 0.00568972,
+            "breaks": [
+              "e",
+              "p",
+              "s",
+              "i",
+              "l",
+              "o",
+              "n"
+            ],
+            "count": 89,
+            "good": 36,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": -0.25458081
+          },
+          {
+            "bad": 137,
+            "badprob": 0.55918367,
+            "bin": "theta%,%beta%,%unknown",
+            "bin_iv": 0.00272303,
+            "breaks": [
+              "t",
+              "h",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "b",
+              "e",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "u",
+              "n",
+              "k",
+              "n",
+              "o",
+              "w",
+              "n"
+            ],
+            "count": 245,
+            "good": 108,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": -0.10565753
+          },
+          {
+            "bad": 292,
+            "badprob": 0.52423698,
+            "bin": "gamma%,%delta%,%alpha%,%eta",
+            "bin_iv": 0.00068963,
+            "breaks": [
+              "g",
+              "a",
+              "m",
+              "m",
+              "a",
+              "%",
+              ",",
+              "%",
+              "d",
+              "e",
+              "l",
+              "t",
+              "a",
+              "%",
+              ",",
+              "%",
+              "a",
+              "l",
+              "p",
+              "h",
+              "a",
+              "%",
+              ",",
+              "%",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 557,
+            "good": 265,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.03516819
+          },
+          {
+            "bad": 30,
+            "badprob": 0.43478261,
+            "bin": "zeta",
+            "bin_iv": 0.01074243,
+            "breaks": [
+              "z",
+              "e",
+              "t",
+              "a"
+            ],
+            "count": 69,
+            "good": 39,
+            "is_special_values": false,
+            "total_iv": 0.01988609,
+            "variable": "cat_ok",
+            "woe": 0.39455643
+          }
+        ],
+        "num_discrete": [
+          {
+            "bad": 23,
+            "badprob": 0.575,
+            "bin": "[-inf,0.0)",
+            "bin_iv": 0.001148,
+            "breaks": [
+              "0",
+              ".",
+              "0"
+            ],
+            "count": 40,
+            "good": 17,
+            "is_special_values": false,
+            "total_iv": 0.00473842,
+            "variable": "num_discrete",
+            "woe": -0.17008871
+          },
+          {
+            "bad": 180,
+            "badprob": 0.51136364,
+            "bin": "[0.0,2.0)",
+            "bin_iv": 0.0026537,
+            "breaks": [
+              "2",
+              ".",
+              "0"
+            ],
+            "count": 352,
+            "good": 172,
+            "is_special_values": false,
+            "total_iv": 0.00473842,
+            "variable": "num_discrete",
+            "woe": 0.08672979
+          },
+          {
+            "bad": 330,
+            "badprob": 0.54276316,
+            "bin": "[2.0,inf)",
+            "bin_iv": 0.00093673,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 608,
+            "good": 278,
+            "is_special_values": false,
+            "total_iv": 0.00473842,
+            "variable": "num_discrete",
+            "woe": -0.03927937
+          }
+        ],
+        "num_normal": [
+          {
+            "bad": 32,
+            "badprob": 0.53333333,
+            "bin": "missing",
+            "bin_iv": 1.1e-07,
+            "breaks": [
+              "m",
+              "i",
+              "s",
+              "s",
+              "i",
+              "n",
+              "g"
+            ],
+            "count": 60,
+            "good": 28,
+            "is_special_values": true,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.00133923
+          },
+          {
+            "bad": 12,
+            "badprob": 0.12903226,
+            "bin": "[-inf,-1.4149999999999998)",
+            "bin_iv": 0.30816609,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "4",
+              "1",
+              "4",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "9",
+              "8"
+            ],
+            "count": 93,
+            "good": 81,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 2.04173467
+          },
+          {
+            "bad": 55,
+            "badprob": 0.29100529,
+            "bin": "[-1.4149999999999998,-0.6757)",
+            "bin_iv": 0.18791927,
+            "breaks": [
+              "-",
+              "0",
+              ".",
+              "6",
+              "7",
+              "5",
+              "7"
+            ],
+            "count": 189,
+            "good": 134,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": 1.02269878
+          },
+          {
+            "bad": 205,
+            "badprob": 0.54521277,
+            "bin": "[-0.6757,0.4934)",
+            "bin_iv": 0.00090682,
+            "breaks": [
+              "0",
+              ".",
+              "4",
+              "9",
+              "3",
+              "4"
+            ],
+            "count": 376,
+            "good": 171,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -0.04915426
+          },
+          {
+            "bad": 144,
+            "badprob": 0.76595745,
+            "bin": "[0.4934,1.339)",
+            "bin_iv": 0.18535174,
+            "breaks": [
+              "1",
+              ".",
+              "3",
+              "3",
+              "9"
+            ],
+            "count": 188,
+            "good": 44,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -1.0534315
+          },
+          {
+            "bad": 85,
+            "badprob": 0.90425532,
+            "bin": "[1.339,inf)",
+            "bin_iv": 0.29628123,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 94,
+            "good": 9,
+            "is_special_values": false,
+            "total_iv": 0.97862526,
+            "variable": "num_normal",
+            "woe": -2.11323451
+          }
+        ],
+        "num_signal": [
+          {
+            "bad": 92,
+            "badprob": 0.26285714,
+            "bin": "[-inf,-1.164)",
+            "bin_iv": 0.44190891,
+            "breaks": [
+              "-",
+              "1",
+              ".",
+              "1",
+              "6",
+              "4"
+            ],
+            "count": 350,
+            "good": 258,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": 1.16336317
+          },
+          {
+            "bad": 348,
+            "badprob": 0.63387978,
+            "bin": "[-1.164,2.905)",
+            "bin_iv": 0.09271746,
+            "breaks": [
+              "2",
+              ".",
+              "9",
+              "0",
+              "5"
+            ],
+            "count": 549,
+            "good": 201,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -0.41670541
+          },
+          {
+            "bad": 93,
+            "badprob": 0.92079208,
+            "bin": "[2.905,inf)",
+            "bin_iv": 0.36521193,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 101,
+            "good": 8,
+            "is_special_values": false,
+            "total_iv": 0.8998383,
+            "variable": "num_signal",
+            "woe": -2.32096578
+          }
+        ],
+        "num_skewed": [
+          {
+            "bad": 69,
+            "badprob": 0.46,
+            "bin": "[-inf,0.2066)",
+            "bin_iv": 0.01286908,
+            "breaks": [
+              "0",
+              ".",
+              "2",
+              "0",
+              "6",
+              "6"
+            ],
+            "count": 150,
+            "good": 81,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": 0.29253482
+          },
+          {
+            "bad": 243,
+            "badprob": 0.54,
+            "bin": "[0.2066,1.2)",
+            "bin_iv": 0.00035625,
+            "breaks": [
+              "1",
+              ".",
+              "2"
+            ],
+            "count": 450,
+            "good": 207,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": -0.02815048
+          },
+          {
+            "bad": 75,
+            "badprob": 0.5,
+            "bin": "[1.2,2.0780000000000003)",
+            "bin_iv": 0.00262886,
+            "breaks": [
+              "2",
+              ".",
+              "0",
+              "7",
+              "8",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "3"
+            ],
+            "count": 150,
+            "good": 75,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": 0.13219217
+          },
+          {
+            "bad": 62,
+            "badprob": 0.62,
+            "bin": "[2.0780000000000003,3.0730000000000004)",
+            "bin_iv": 0.0124904,
+            "breaks": [
+              "3",
+              ".",
+              "0",
+              "7",
+              "3",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "4"
+            ],
+            "count": 100,
+            "good": 38,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": -0.35735606
+          },
+          {
+            "bad": 24,
+            "badprob": 0.48,
+            "bin": "[3.0730000000000004,4.028)",
+            "bin_iv": 0.00225953,
+            "breaks": [
+              "4",
+              ".",
+              "0",
+              "2",
+              "8"
+            ],
+            "count": 50,
+            "good": 26,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": 0.21223487
+          },
+          {
+            "bad": 60,
+            "badprob": 0.6,
+            "bin": "[4.028,inf)",
+            "bin_iv": 0.00735576,
+            "breaks": [
+              "i",
+              "n",
+              "f"
+            ],
+            "count": 100,
+            "good": 40,
+            "is_special_values": false,
+            "total_iv": 0.03795987,
+            "variable": "num_skewed",
+            "woe": -0.27327294
+          }
+        ]
+      }
+    }
+  },
+  "dataset": "synthetic",
+  "float_digits": 8,
+  "golden_version": 1,
+  "snapshot_columns": [
+    "variable",
+    "bin",
+    "count",
+    "good",
+    "bad",
+    "badprob",
+    "woe",
+    "bin_iv",
+    "total_iv",
+    "breaks",
+    "is_special_values"
+  ]
+}

@@ -1,0 +1,144 @@
+name: CI
+
+# W1 基线 CI：
+#   unit            —— 不依赖大数据集，跑 `pytest -m "not slow"`（pandas 3.x）
+#   unit-py312      —— 同上，Python 3.12 额外矩阵
+#   integration     —— 跑 `pytest -m "slow"`（creditcard 全量）；数据缺失时
+#                      用例自身会 skip 并打印原因，job 仍然通过
+#
+# 约定（见 docs/plans/w1-baseline-report.md）：
+#   * PYTHONHASHSEED=0      —— 固定哈希种子，保证 golden 快照可复现
+#   * 不使用 multiprocessing —— 所有测试显式 no_cores=1
+#   * 数据集不入版本库        —— integration job 会打印数据可用性
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 固定哈希种子：golden 快照与基准可复现的前提
+  PYTHONHASHSEED: '0'
+  # 关闭 pip 交互式提示，便于日志阅读
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  # matplotlib 无显示后端（woebin_plot 用例）
+  MPLBACKEND: Agg
+  # matplotlib 字体缓存放临时目录，避免 CI 上无写权限告警
+  MPLCONFIGDIR: /tmp/mplconfig
+
+jobs:
+  unit:
+    name: unit (py${{ matrix.python-version }}, pandas 3.x)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Show environment
+        run: |
+          python -c "import sys, pandas, numpy; print('python', sys.version.split()[0]); print('pandas', pandas.__version__); print('numpy', numpy.__version__)"
+
+      - name: Run unit tests (not slow)
+        run: python -m pytest -q -m "not slow"
+
+  unit-py312:
+    name: unit (py3.12, pandas 3.x)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Run unit tests (not slow)
+        run: python -m pytest -q -m "not slow"
+
+  integration:
+    name: integration (py3.11, slow markers)
+    runs-on: ubuntu-latest
+    # 大数据集（creditcard ~65MB gz）不入版本库：
+    #   * 若仓库/CI 缓存中不存在，测试会 skip 并在日志中说明原因，job 仍通过
+    #   * 需要真正执行时，把数据放到 data/ 或缓存命中即可
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      # 可选：若在仓库 Secrets/Variables 中配置了数据下载地址，则拉取
+      - name: Fetch datasets (optional)
+        if: ${{ vars.RISKMODELS_DATA_URL }}
+        run: |
+          mkdir -p data
+          curl -fsSL "${{ vars.RISKMODELS_DATA_URL }}/germancredit.csv.gz" -o data/germancredit.csv.gz
+          curl -fsSL "${{ vars.RISKMODELS_DATA_URL }}/creditcard.csv.gz" -o data/creditcard.csv.gz
+          ls -la data
+
+      - name: Report dataset availability
+        run: |
+          python - <<'PY'
+          from syriskmodels.datasets import get_data_dir
+          d = get_data_dir()
+          print('data dir:', d)
+          print('files:', sorted(p.name for p in d.glob('*.csv.gz')) if d.exists() else '<missing>')
+          PY
+
+      - name: Run integration tests (slow)
+        run: python -m pytest -q -m "slow"
+
+  # golden 快照单独一条，便于一眼看出基线是否漂移
+  golden:
+    name: golden snapshots (py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Run golden snapshot tests
+        run: python -m pytest -q -m "golden"
